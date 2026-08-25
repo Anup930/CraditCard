@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Credit Card Management System</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/dashboard.css">
+    <link rel="stylesheet" href="css/tables.css">
+    <link rel="stylesheet" href="css/responsive.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💳</text></svg>">
+</head>
+<body>
+
+    <!-- ===== LOGIN SCREEN ===== -->
+    <div id="login-screen">
+        <div class="login-card">
+            <div class="login-logo">
+                <i class="fas fa-credit-card"></i>
+            </div>
+            <h2 class="login-title">Credit Card Management</h2>
+            <p class="login-subtitle">Gretex Group &mdash; Sign in to continue</p>
+
+            <div id="login-error" class="login-error hidden">
+                <i class="fas fa-exclamation-circle"></i>
+                <span id="login-error-msg">Invalid username or password</span>
+            </div>
+
+            <form id="login-form" onsubmit="event.preventDefault(); Auth.login()">
+                <div class="login-field">
+                    <label>Username</label>
+                    <div class="login-input-wrap">
+                        <i class="fas fa-user"></i>
+                        <input type="text" id="login-username" placeholder="Enter username" autocomplete="username" required>
+                    </div>
+                </div>
+                <div class="login-field">
+                    <label>Password</label>
+                    <div class="login-input-wrap">
+                        <i class="fas fa-lock"></i>
+                        <input type="password" id="login-password" placeholder="Enter password" autocomplete="current-password" required>
+                        <button type="button" class="toggle-pwd" onclick="Auth.togglePassword()" title="Show/Hide">
+                            <i class="fas fa-eye" id="pwd-eye-icon"></i>
+                        </button>
+                    </div>
+                </div>
+                <button type="submit" class="btn-login" id="btn-login">
+                    <span id="login-btn-text"><i class="fas fa-sign-in-alt"></i> Sign In</span>
+                    <span id="login-btn-loading" class="hidden"><i class="fas fa-spinner fa-spin"></i> Verifying...</span>
+                </button>
+            </form>
+
+            <div class="login-hint">
+                <i class="fas fa-info-circle"></i>
+                Default &mdash; Username: <strong>admin</strong> &nbsp;|&nbsp; Password: <strong>admin123</strong>
+            </div>
+            <div class="login-footer">Gretex Group &copy; 2025 &nbsp;&bull;&nbsp; CCMS v1.0</div>
+        </div>
+    </div>
+
+    <!-- ===== MAIN APP (hidden until login) ===== -->
+    <div id="app" class="hidden">
+        <!-- ===== Sidebar ===== -->
+        <aside id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo"><i class="fas fa-credit-card"></i></div>
+                <span class="sidebar-title">CCMS</span>
+            </div>
+
+            <nav class="sidebar-nav">
+                <div class="nav-section-label">MAIN</div>
+                <a href="#" class="nav-item active" data-page="dashboard">
+                    <i class="fas fa-tachometer-alt"></i><span>Dashboard</span>
+                </a>
+
+                <div class="nav-section-label">MANAGEMENT</div>
+                <a href="#" class="nav-item" data-page="master">
+                    <i class="fas fa-id-card"></i><span>Card Master</span>
+                </a>
+                <a href="#" class="nav-item" data-page="import">
+                    <i class="fas fa-file-import"></i><span>Zoho Import</span>
+                </a>
+                <a href="#" class="nav-item" data-page="transactions">
+                    <i class="fas fa-exchange-alt"></i><span>Transactions</span>
+                </a>
+                <a href="#" class="nav-item" data-page="payments">
+                    <i class="fas fa-money-bill-wave"></i><span>Payments &amp; Statements</span>
+                </a>
+
+                <div class="nav-section-label">ANALYTICS</div>
+                <a href="#" class="nav-item" data-page="reports">
+                    <i class="fas fa-chart-bar"></i><span>Reports</span>
+                </a>
+                <a href="#" class="nav-item" data-page="hygiene">
+                    <i class="fas fa-broom"></i><span>Data Hygiene</span>
+                </a>
+
+                <div class="nav-section-label admin-only">ADMIN</div>
+                <a href="#" class="nav-item admin-only" data-page="users">
+                    <i class="fas fa-users-cog"></i><span>User Management</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <button id="btn-export-db" class="btn-sidebar" title="Export database to Excel">
+                    <i class="fas fa-download"></i><span>Export DB</span>
+                </button>
+                <button id="btn-import-db" class="btn-sidebar" title="Import database from Excel">
+                    <i class="fas fa-upload"></i><span>Load DB</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- ===== Main Content ===== -->
+        <main id="main">
+            <header id="header">
+                <div class="header-left">
+                    <button id="sidebar-toggle" class="btn-icon" title="Toggle sidebar">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <h1 id="page-title">Dashboard</h1>
+                </div>
+                <div class="header-right">
+                    <div class="search-box">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="global-search" placeholder="Search cards, transactions...">
+                    </div>
+                    <div class="header-info">
+                        <span id="card-count-badge" class="badge badge-info" title="Total cards">
+                            <i class="fas fa-credit-card"></i> <span id="total-card-count">0</span>
+                        </span>
+                        <span id="db-status" class="badge badge-success" title="Database status">
+                            <i class="fas fa-cloud"></i> Google Sheets
+                        </span>
+                        <span id="user-badge" class="badge" style="background:#eef0ff;color:#4361ee;">
+                            <i class="fas fa-user-circle"></i>
+                            <span id="user-name-display">User</span>
+                            &nbsp;<small id="user-role-display" style="opacity:0.7;font-size:0.7rem;"></small>
+                        </span>
+                        <button id="btn-logout" class="btn-icon" title="Logout" onclick="Auth.logout()" style="color:#ef476f;">
+                            <i class="fas fa-sign-out-alt"></i>
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <div id="content">
+                <div class="loading-screen">
+                    <div class="spinner"></div>
+                    <p>Loading...</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- ===== Modal ===== -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+        <div id="modal" class="modal">
+            <div class="modal-header">
+                <h2 id="modal-title">Modal Title</h2>
+                <button id="modal-close" class="btn-icon"><i class="fas fa-times"></i></button>
+            </div>
+            <div id="modal-body" class="modal-body"></div>
+        </div>
+    </div>
+
+    <!-- ===== Confirm Dialog ===== -->
+    <div id="confirm-overlay" class="modal-overlay hidden">
+        <div class="modal modal-sm">
+            <div class="modal-header">
+                <h2 id="confirm-title">Confirm</h2>
+                <button class="btn-icon" onclick="App.closeConfirm()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <p id="confirm-message"></p>
+                <div class="modal-actions">
+                    <button id="confirm-cancel" class="btn btn-secondary">Cancel</button>
+                    <button id="confirm-ok" class="btn btn-danger">Confirm</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== Toast Container ===== -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- ===== Hidden File Inputs ===== -->
+    <input type="file" id="db-file-input" accept=".xlsx,.xls" style="display:none">
+    <input type="file" id="zoho-file-input" accept=".xlsx,.xls,.csv" style="display:none">
+
+    <!-- ===== Libraries (CDN) ===== -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+    <!-- ===== App Scripts ===== -->
+    <script src="js/utils.js"></script>
+    <script src="js/db.js"></script>
+    <script src="js/dashboard.js"></script>
+    <script src="js/master.js"></script>
+    <script src="js/import.js"></script>
+    <script src="js/transactions.js"></script>
+    <script src="js/payments.js"></script>
+    <script src="js/reports.js"></script>
+    <script src="js/users.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
