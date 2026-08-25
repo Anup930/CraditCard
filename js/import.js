@@ -257,7 +257,24 @@ window.Import = {
             const cardId = ledgerMap[ledgerName.toLowerCase()] || null;
 
             let parsedDate = null;
-            if(dateVal) parsedDate = new Date(dateVal).toISOString();
+            if(dateVal) {
+                let strVal = String(dateVal).trim();
+                let m = strVal.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+                let d = null;
+                if (m) {
+                    let p1 = parseInt(m[1], 10);
+                    let p2 = parseInt(m[2], 10);
+                    let yr = parseInt(m[3], 10);
+                    if (p1 > 12) d = new Date(yr, p2 - 1, p1);
+                    else if (p2 > 12) d = new Date(yr, p1 - 1, p2);
+                    else d = new Date(yr, p2 - 1, p1); // Default to DD/MM/YYYY
+                } else {
+                    d = new Date(strVal);
+                }
+                if (d && !isNaN(d.getTime())) {
+                    parsedDate = d.toISOString();
+                }
+            }
 
             const record = {
                 txn_date: parsedDate,
