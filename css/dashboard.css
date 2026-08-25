@@ -1,1 +1,181 @@
+/* Dashboard specific styles */
 
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.kpi-card {
+    background-color: var(--white);
+    border-radius: var(--border-radius-card);
+    padding: 20px;
+    box-shadow: var(--shadow-sm);
+    position: relative;
+    overflow: hidden;
+    transition: transform var(--transition), box-shadow var(--transition);
+}
+
+.kpi-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+.kpi-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 4px;
+    height: 100%;
+}
+
+.kpi-card.kpi-payable::before { background-color: var(--danger); }
+.kpi-card.kpi-unbilled::before { background-color: var(--warning); }
+.kpi-card.kpi-rewards::before { background-color: var(--secondary); }
+.kpi-card.kpi-cards::before { background-color: var(--primary); }
+.kpi-card.kpi-utilization::before { background-color: #e85d04; }
+.kpi-card.kpi-limit::before { background-color: var(--info); }
+.kpi-card.kpi-available::before { background-color: var(--success); }
+.kpi-card.kpi-waiver::before { background-color: #9d4edd; }
+
+.kpi-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 12px;
+    font-size: 1.1rem;
+}
+
+.kpi-icon.icon-payable {
+    background-color: var(--danger-light);
+    color: var(--danger);
+}
+.kpi-icon.icon-unbilled { background-color: var(--warning-light); color: var(--warning); }
+.kpi-icon.icon-rewards { background-color: #f3e8ff; color: var(--secondary); }
+.kpi-icon.icon-cards { background-color: var(--primary-light); color: var(--primary); }
+.kpi-icon.icon-utilization { background-color: #ffedd5; color: #e85d04; }
+.kpi-icon.icon-limit { background-color: var(--info-light); color: var(--info); }
+.kpi-icon.icon-available { background-color: var(--success-light); color: var(--success); }
+.kpi-icon.icon-waiver { background-color: #f3e8ff; color: #9d4edd; }
+
+
+.kpi-value {
+    font-size: 1.6rem;
+    font-weight: 800;
+    color: var(--text-primary);
+    line-height: 1.2;
+}
+
+.kpi-label {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    font-weight: 500;
+}
+
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 20px;
+}
+
+.chart-container {
+    background-color: var(--white);
+    border-radius: var(--border-radius-card);
+    padding: 20px;
+    box-shadow: var(--shadow-sm);
+    position: relative;
+    min-height: 300px;
+}
+
+.chart-container h3 {
+    font-size: 0.95rem;
+    font-weight: 700;
+    margin-bottom: 16px;
+    color: var(--text-primary);
+}
+
+.chart-container canvas {
+    max-height: 280px;
+}
+
+.alerts-panel {
+    background-color: var(--white);
+    border-radius: var(--border-radius-card);
+    padding: 20px;
+    box-shadow: var(--shadow-sm);
+}
+
+.alerts-panel h3 {
+    font-size: 0.95rem;
+    font-weight: 700;
+    margin-bottom: 16px;
+}
+
+.alert-item {
+    padding: 10px 12px;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    font-size: 0.82rem;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    border-left: 3px solid;
+}
+
+.alert-item.alert-high {
+    background-color: var(--danger-light);
+    border-color: var(--danger);
+}
+
+.alert-item.alert-medium {
+    background-color: var(--warning-light);
+    border-color: var(--warning);
+}
+
+.alert-item.alert-low {
+    background-color: var(--info-light);
+    border-color: var(--info);
+}
+
+.alert-item .alert-icon {
+    flex-shrink: 0;
+}
+
+.alert-item .alert-text {
+    flex: 1;
+}
+
+.alert-item .alert-text strong {
+    display: block;
+    margin-bottom: 2px;
+}
+
+.quick-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.quick-stat {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 12px;
+    text-align: center;
+}
+
+.quick-stat .stat-value {
+    font-size: 1.2rem;
+    font-weight: 700;
+}
+
+.quick-stat .stat-label {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
