@@ -69,7 +69,7 @@ window.Payments = {
         `;
         
         const allCards = window.DB.cards.getAll() || [];
-        const getCardStr = (id) => { const c = allCards.find(x => x.card_id === id); return c ? `${c.cardholder_name} (*${c.card_last4})` : 'Unknown'; };
+        const getCardStr = (id) => { const c = allCards.find(x => String(x.card_id) === String(id)); return c ? `${c.cardholder_name} (*${c.card_last4})` : 'Unknown'; };
 
         if(statements.length === 0) {
             html += `<tr><td colspan="10" class="text-center py-4">No statements recorded.</td></tr>`;
@@ -80,6 +80,8 @@ window.Payments = {
                 else if(s.payment_status === 'Overdue') statusBadge = 'bg-danger';
                 else if(s.payment_status === 'Partial') statusBadge = 'bg-warning text-dark';
                 else if(s.payment_status === 'Pending') statusBadge = 'bg-info text-dark';
+
+                const hasPayment = (window.DB.payments.getAll() || []).some(p => String(p.statement_id) === String(s.statement_id));
 
                 html += `
                     <tr>
@@ -96,7 +98,10 @@ window.Payments = {
                             <div class="actions" style="align-items: center;">
                                 <button class="btn btn-sm btn-icon text-primary" title="View Details" onclick="window.Payments.viewStatement('${s.statement_id}')"><i class="fas fa-eye"></i></button>
                                 <button class="btn btn-sm btn-icon text-warning" title="Edit Statement" onclick="window.Payments.showStatementModal('${s.statement_id}')"><i class="fas fa-edit"></i></button>
-                                <button class="btn btn-sm btn-outline-success ms-1" onclick="window.Payments.showPaymentModal('${s.card_id}', '${s.statement_id}')">Pay</button>
+                                ${hasPayment 
+                                    ? `<button class="btn btn-sm btn-outline-info ms-1" onclick="window.Payments.switchTab('payments')">Payment Details</button>` 
+                                    : `<button class="btn btn-sm btn-outline-success ms-1" onclick="window.Payments.showPaymentModal('${s.card_id}', '${s.statement_id}')">Pay</button>`
+                                }
                             </div>
                         </td>
                     </tr>
@@ -140,8 +145,8 @@ window.Payments = {
             html += `<tr><td colspan="7" class="text-center py-4">No payments recorded.</td></tr>`;
         } else {
             payments.forEach(p => {
-                const c = allCards.find(x => x.card_id === p.card_id);
-                const s = allStmts.find(x => x.statement_id === p.statement_id);
+                const c = allCards.find(x => String(x.card_id) === String(p.card_id));
+                const s = allStmts.find(x => String(x.statement_id) === String(p.statement_id));
                 const cardStr = c ? `${c.cardholder_name} (*${c.card_last4})` : 'Unknown';
                 const stmtStr = s ? window.Utils.formatMonthYear(s.statement_month) : 'N/A';
                 
@@ -224,7 +229,7 @@ window.Payments = {
             html += `<tr><td colspan="7" class="text-center py-4 text-success"><i class="fas fa-check-circle me-2"></i>All dues are cleared!</td></tr>`;
         } else {
             outstanding.forEach(s => {
-                const c = allCards.find(x => x.card_id === s.card_id);
+                const c = allCards.find(x => String(x.card_id) === String(s.card_id));
                 const isOverdue = new Date(s.due_date) < today;
                 const statusBadge = isOverdue ? 'bg-danger' : 'bg-warning text-dark';
                 const statusText = isOverdue ? 'Overdue' : 'Pending';
@@ -247,7 +252,10 @@ window.Payments = {
                         <td>
                             <div class="actions" style="align-items: center;">
                                 <button class="btn btn-sm btn-icon text-primary" title="View Details" onclick="window.Payments.viewStatement('${s.statement_id}')"><i class="fas fa-eye"></i></button>
-                                <button class="btn btn-sm btn-success ms-2" onclick="window.Payments.showPaymentModal('${s.card_id}', '${s.statement_id}')">Pay Now</button>
+                                ${s.payment_status === 'Paid' || parseFloat(s.closing_outstanding) <= 0 
+                                    ? `<button class="btn btn-sm btn-outline-info ms-2" onclick="window.Payments.switchTab('payments')">Payment Details</button>`
+                                    : `<button class="btn btn-sm btn-success ms-2" onclick="window.Payments.showPaymentModal('${s.card_id}', '${s.statement_id}')">Pay Now</button>`
+                                }
                             </div>
                         </td>
                     </tr>
@@ -270,6 +278,8 @@ window.Payments = {
 
         const statusClass = s.payment_status === 'Paid' ? 'bg-success' : (s.payment_status === 'Overdue' ? 'bg-danger' : 'bg-warning text-dark');
 
+        const hasPayment = (window.DB.payments.getAll() || []).some(p => String(p.statement_id) === String(s.statement_id));
+
         const html = `
             <div class="row">
                 <div class="col-md-6 mb-3"><strong>Statement Month:</strong> <br>${window.Utils.formatMonthYear(s.statement_month)}</div>
@@ -285,7 +295,10 @@ window.Payments = {
             </div>
             <div class="text-end mt-3 border-top pt-3">
                 <button class="btn btn-secondary me-2" onclick="window.App.closeModal()">Close</button>
-                <button class="btn btn-success" onclick="window.App.closeModal(); setTimeout(() => window.Payments.showPaymentModal('${s.card_id}', '${s.statement_id}'), 300)">Pay Now</button>
+                ${hasPayment 
+                    ? `<button class="btn btn-outline-info" onclick="window.App.closeModal(); setTimeout(() => window.Payments.switchTab('payments'), 300)">View Payment History</button>`
+                    : `<button class="btn btn-success" onclick="window.App.closeModal(); setTimeout(() => window.Payments.showPaymentModal('${s.card_id}', '${s.statement_id}'), 300)">Pay Now</button>`
+                }
             </div>
         `;
         if(window.App && window.App.showModal) window.App.showModal("Statement Details", html);
@@ -376,6 +389,7 @@ window.Payments = {
             </form>
         `;
         if(window.App && window.App.showModal) window.App.showModal(isEdit ? "Edit Statement" : "Add Statement", html);
+        setTimeout(() => { window.Utils.makeSearchable('fs_card'); }, 50);
     },
 
     // Called by oninput on the 3 calc fields — live recalculates Closing Outstanding
@@ -419,9 +433,9 @@ window.Payments = {
         
         let stmtOptions = '<option value="">-- Independent Payment --</option>';
         if(preCardId) {
-            const cardStmts = allStmts.filter(s => s.card_id === preCardId && s.payment_status !== 'Paid');
+            const cardStmts = allStmts.filter(s => String(s.card_id) === String(preCardId) && s.payment_status !== 'Paid');
             cardStmts.forEach(s => {
-                stmtOptions += `<option value="${s.statement_id}" ${s.statement_id === preStmtId ? 'selected' : ''}>${window.Utils.formatMonthYear(s.statement_month)} (Due: ${window.Utils.formatCurrency(s.closing_outstanding)})</option>`;
+                stmtOptions += `<option value="${s.statement_id}" ${String(s.statement_id) === String(preStmtId) ? 'selected' : ''}>${window.Utils.formatMonthYear(s.statement_month)} (Due: ${window.Utils.formatCurrency(s.closing_outstanding)})</option>`;
             });
         }
 
@@ -432,7 +446,7 @@ window.Payments = {
                         <label class="form-label">Select Card</label>
                         <select class="form-select" id="fp_card" required onchange="window.Payments.updateStmtDropdown(this.value)">
                             <option value="">-- Select --</option>
-                            ${allCards.map(c => `<option value="${c.card_id}" ${c.card_id === preCardId ? 'selected' : ''}>${c.cardholder_name} (*${c.card_last4})</option>`).join('')}
+                            ${allCards.map(c => `<option value="${c.card_id}" ${String(c.card_id) === String(preCardId) ? 'selected' : ''}>${c.cardholder_name} (*${c.card_last4})</option>`).join('')}
                         </select>
                     </div>
                     <div class="col-md-6 form-group">
@@ -476,13 +490,14 @@ window.Payments = {
             </form>
         `;
         if(window.App && window.App.showModal) window.App.showModal("Record Payment", html);
+        setTimeout(() => { window.Utils.makeSearchable('fp_card'); }, 50);
     },
 
     updateStmtDropdown: function(cardId) {
         const stmtSelect = document.getElementById('fp_stmt');
         if(!stmtSelect) return;
         const allStmts = window.DB.statements.getAll() || [];
-        const cardStmts = allStmts.filter(s => s.card_id === cardId && s.payment_status !== 'Paid');
+        const cardStmts = allStmts.filter(s => String(s.card_id) === String(cardId) && s.payment_status !== 'Paid');
         
         let html = '<option value="">-- Independent Payment --</option>';
         cardStmts.forEach(s => {

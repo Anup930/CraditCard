@@ -93,7 +93,163 @@ window.Utils = {
         return new Date().toISOString();
     },
     
-    // Debounce function
+    // Make a native <select> element searchable by wrapping it in a custom dropdown
+    // Usage: window.Utils.makeSearchable('your-select-id')
+    makeSearchable(selectId) {
+        const select = document.getElementById(selectId);
+        if (!select || select.dataset.searchable === '1') return;
+        select.dataset.searchable = '1';
+        
+        // Build wrapper
+        const wrapper = document.createElement('div');
+        wrapper.className = 'sselect-wrapper';
+        wrapper.style.position = 'relative';
+        select.parentNode.insertBefore(wrapper, select);
+        wrapper.appendChild(select);
+        
+        // Hide native select visually but keep it functional
+        select.style.display = 'none';
+        
+        // Create the display trigger
+        const trigger = document.createElement('div');
+        trigger.className = 'sselect-trigger form-control';
+        trigger.style.cursor = 'pointer';
+        trigger.style.display = 'flex';
+        trigger.style.justifyContent = 'space-between';
+        trigger.style.alignItems = 'center';
+        trigger.style.userSelect = 'none';
+        const triggerText = document.createElement('span');
+        triggerText.className = 'sselect-trigger-text';
+        triggerText.textContent = select.options[select.selectedIndex]?.text || '-- Select --';
+        const triggerArrow = document.createElement('span');
+        triggerArrow.innerHTML = '<i class="fas fa-chevron-down" style="font-size:11px;opacity:0.6;"></i>';
+        trigger.appendChild(triggerText);
+        trigger.appendChild(triggerArrow);
+        wrapper.appendChild(trigger);
+        
+        // Create dropdown panel
+        const panel = document.createElement('div');
+        panel.className = 'sselect-panel';
+        panel.style.display = 'none';
+        panel.style.position = 'absolute';
+        panel.style.top = '100%';
+        panel.style.left = '0';
+        panel.style.right = '0';
+        panel.style.zIndex = '9999';
+        panel.style.background = '#fff';
+        panel.style.border = '1px solid #d0d5e8';
+        panel.style.borderRadius = '8px';
+        panel.style.boxShadow = '0 8px 24px rgba(0,0,0,0.12)';
+        panel.style.overflow = 'hidden';
+        
+        // Search input
+        const searchWrap = document.createElement('div');
+        searchWrap.style.padding = '8px';
+        searchWrap.style.borderBottom = '1px solid #e9ecef';
+        const searchInput = document.createElement('input');
+        searchInput.type = 'text';
+        searchInput.placeholder = 'Type to search...';
+        searchInput.className = 'form-control';
+        searchInput.style.fontSize = '13px';
+        searchInput.style.padding = '6px 10px';
+        searchWrap.appendChild(searchInput);
+        panel.appendChild(searchWrap);
+        
+        // Options list
+        const optList = document.createElement('div');
+        optList.className = 'sselect-options';
+        optList.style.maxHeight = '220px';
+        optList.style.overflowY = 'auto';
+        panel.appendChild(optList);
+        wrapper.appendChild(panel);
+        
+        // Render options
+        const renderOptions = (filter = '') => {
+            optList.innerHTML = '';
+            const q = filter.toLowerCase();
+            Array.from(select.options).forEach(opt => {
+                if (q && !opt.text.toLowerCase().includes(q)) return;
+                const item = document.createElement('div');
+                item.className = 'sselect-option';
+                item.dataset.value = opt.value;
+                item.textContent = opt.text;
+                item.style.padding = '8px 14px';
+                item.style.cursor = 'pointer';
+                item.style.fontSize = '13px';
+                if (opt.value === select.value) {
+                    item.style.background = '#f0f3ff';
+                    item.style.fontWeight = '600';
+                    item.style.color = '#4361ee';
+                }
+                item.addEventListener('mouseenter', () => item.style.background = '#f5f7ff');
+                item.addEventListener('mouseleave', () => item.style.background = opt.value === select.value ? '#f0f3ff' : '');
+                item.addEventListener('click', () => {
+                    select.value = opt.value;
+                    triggerText.textContent = opt.text;
+                    panel.style.display = 'none';
+                    // Fire change event on the native select
+                    select.dispatchEvent(new Event('change', { bubbles: true }));
+                    renderOptions();
+                });
+                optList.appendChild(item);
+            });
+            if (!optList.children.length) {
+                const empty = document.createElement('div');
+                empty.style.padding = '12px';
+                empty.style.color = '#999';
+                empty.style.textAlign = 'center';
+                empty.style.fontSize = '13px';
+                empty.textContent = 'No results found';
+                optList.appendChild(empty);
+            }
+        };
+        
+        renderOptions();
+        
+        // Toggle panel
+        trigger.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = panel.style.display === 'block';
+            // Close all other panels first
+            document.querySelectorAll('.sselect-panel').forEach(p => p.style.display = 'none');
+            if (!isOpen) {
+                panel.style.display = 'block';
+                searchInput.value = '';
+                renderOptions();
+                setTimeout(() => searchInput.focus(), 50);
+            }
+        });
+        
+        // Live search
+        searchInput.addEventListener('input', () => renderOptions(searchInput.value));
+        searchInput.addEventListener('click', e => e.stopPropagation());
+        
+        // Close on outside click
+        document.addEventListener('click', () => { panel.style.display = 'none'; });
+        
+        // Watch for programmatic changes to select value (e.g. when modal resets)
+        const observer = new MutationObserver(() => {
+            const selected = select.options[select.selectedIndex];
+            if (selected) triggerText.textContent = selected.text;
+            renderOptions();
+        });
+        observer.observe(select, { attributes: true, childList: true, subtree: true, attributeFilter: ['value'] });
+        
+        // Also sync when options are added
+        select.addEventListener('change', () => {
+            const selected = select.options[select.selectedIndex];
+            if (selected) triggerText.textContent = selected.text;
+        });
+    },
+    
+    // Apply makeSearchable to all selects that have [data-searchable] attribute or matching ids
+    initSearchableSelects() {
+        document.querySelectorAll('select[data-searchable-auto]').forEach(el => {
+            if (el.id) this.makeSearchable(el.id);
+        });
+    },
+
+
     debounce(fn, delay=300) {
         let timeoutId;
         return function(...args) {

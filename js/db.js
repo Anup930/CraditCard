@@ -62,32 +62,32 @@ window.DB = {
             // Normalize numeric fields from Sheets (they come as strings)
             this.data.credit_cards.forEach(c => {
                 c.card_id           = parseInt(c.card_id) || 0;
-                c.credit_limit      = parseFloat(c.credit_limit) || 0;
-                c.fee_waiver_target = parseFloat(c.fee_waiver_target) || 0;
-                c.reward_points     = parseFloat(c.reward_points) || 0;
+                c.credit_limit      = Utils.parseNum(c.credit_limit);
+                c.fee_waiver_target = Utils.parseNum(c.fee_waiver_target);
+                c.reward_points     = Utils.parseNum(c.reward_points);
                 c.statement_date    = c.statement_date ? parseInt(c.statement_date) : null;
                 c.due_date          = c.due_date ? parseInt(c.due_date) : null;
             });
             this.data.transactions.forEach(t => {
                 t.txn_id = parseInt(t.txn_id) || 0;
-                t.amount = parseFloat(t.amount) || 0;
+                t.amount = Utils.parseNum(t.amount);
                 t.card_id = parseInt(t.card_id) || null;
             });
             this.data.statements.forEach(s => {
                 s.statement_id       = parseInt(s.statement_id) || 0;
                 s.card_id            = parseInt(s.card_id) || 0;
-                s.opening_balance    = parseFloat(s.opening_balance) || 0;
-                s.billed_amount      = parseFloat(s.billed_amount) || 0;
-                s.unbilled_amount    = parseFloat(s.unbilled_amount) || 0;
-                s.credits_payments   = parseFloat(s.credits_payments) || 0;
-                s.closing_outstanding= parseFloat(s.closing_outstanding) || 0;
-                s.minimum_due        = parseFloat(s.minimum_due) || 0;
+                s.opening_balance    = Utils.parseNum(s.opening_balance);
+                s.billed_amount      = Utils.parseNum(s.billed_amount);
+                s.unbilled_amount    = Utils.parseNum(s.unbilled_amount);
+                s.credits_payments   = Utils.parseNum(s.credits_payments);
+                s.closing_outstanding= Utils.parseNum(s.closing_outstanding);
+                s.minimum_due        = Utils.parseNum(s.minimum_due);
             });
             this.data.payments.forEach(p => {
                 p.payment_id   = parseInt(p.payment_id) || 0;
                 p.card_id      = parseInt(p.card_id) || 0;
                 p.statement_id = parseInt(p.statement_id) || null;
-                p.amount       = parseFloat(p.amount) || 0;
+                p.amount       = Utils.parseNum(p.amount);
             });
 
             console.log('DB loaded from Google Sheets:', {
@@ -445,8 +445,9 @@ window.DB = {
             const cs = stmts.filter(s => String(s.card_id) === String(c.card_id))
                             .sort((a, b) => (b.statement_month || '').localeCompare(a.statement_month || ''));
             if (cs.length) {
-                const out = Utils.parseNum(cs[0].closing_outstanding);
-                const unb = Utils.parseNum(cs[0].unbilled_amount);
+                const latestStmt = cs[0];
+                const out = latestStmt.payment_status === 'Paid' ? 0 : Utils.parseNum(latestStmt.closing_outstanding);
+                const unb = Utils.parseNum(latestStmt.unbilled_amount);
                 totalPayable  += out;
                 totalUnbilled += unb;
                 const lim = Utils.parseNum(c.credit_limit);

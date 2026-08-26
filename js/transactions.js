@@ -71,6 +71,8 @@ window.Transactions = {
         this.container.appendChild(this.tableWrapper);
 
         this.renderData();
+        // Make the Card filter searchable
+        setTimeout(() => { window.Utils.makeSearchable('txnCard'); }, 50);
     },
 
     applyFilters: function() {
@@ -98,8 +100,8 @@ window.Transactions = {
         if (this.filters.cardId) txns = txns.filter(t => t.card_id === this.filters.cardId);
         if (this.filters.type) txns = txns.filter(t => t.txn_type === this.filters.type);
         if (this.filters.search) txns = txns.filter(t => 
-            (t.description || '').toLowerCase().includes(this.filters.search) || 
-            (t.zoho_ledger || '').toLowerCase().includes(this.filters.search)
+            String(t.description || '').toLowerCase().includes(this.filters.search) || 
+            String(t.zoho_ledger || '').toLowerCase().includes(this.filters.search)
         );
 
         // Sort descending by date

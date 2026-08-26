@@ -77,6 +77,8 @@ window.Master = {
         this.container.appendChild(this.tableWrapper);
 
         this.renderTable();
+        // Make owner filter searchable
+        setTimeout(() => { window.Utils.makeSearchable('masterOwnerFilter'); }, 50);
     },
 
     search: function(query) {
@@ -100,9 +102,9 @@ window.Master = {
         // Apply Filters
         if(this.currentFilter) {
             cards = cards.filter(c => 
-                (c.cardholder_name || '').toLowerCase().includes(this.currentFilter) ||
-                (c.card_number || '').includes(this.currentFilter) ||
-                (c.zoho_ledger_name || '').toLowerCase().includes(this.currentFilter)
+                String(c.cardholder_name || '').toLowerCase().includes(this.currentFilter) ||
+                String(c.card_number || '').toLowerCase().includes(this.currentFilter) ||
+                String(c.zoho_ledger_name || '').toLowerCase().includes(this.currentFilter)
             );
         }
         if(this.currentBankFilter) cards = cards.filter(c => c.bank_name === this.currentBankFilter);
@@ -148,7 +150,7 @@ window.Master = {
                 html += `
                     <tr class="${rowClass}">
                         <td>${srNo}</td>
-                        <td>${window.Utils.escapeHtml(c.cardholder_name || '')}</td>
+                        <td><a href="#" class="text-decoration-none fw-bold text-primary" onclick="window.Master.viewCardLedger('${c.card_id}'); return false;">${window.Utils.escapeHtml(c.cardholder_name || '')}</a></td>
                         <td><span class="${catBadge}">${c.card_category || 'N/A'}</span></td>
                         <td>${window.Utils.escapeHtml(c.primary_cardholder || '')}</td>
                         <td>${window.Utils.escapeHtml(c.bank_name || '')}</td>
@@ -214,6 +216,86 @@ window.Master = {
                 window.DB.cards.delete(id).then(() => this.renderTable());
             }
         }
+    },
+
+    viewCardLedger: function(id) {
+        const card = window.DB.cards.getById(id);
+        if(!card) return;
+
+        const stmts = [...(window.DB.statements.getByCard(id) || [])].reverse();
+        const allPmts = window.DB.payments.getAll() || [];
+
+        let tbody = '';
+        stmts.forEach(s => {
+            const spmts = allPmts.filter(p => String(p.statement_id) === String(s.statement_id));
+            const payDates = spmts.map(p => window.Utils.formatDate(p.payment_date)).join(', ') || '-';
+            
+            const prePaymentClosing = (s.opening_balance || 0) + (s.billed_amount || 0) + (s.unbilled_amount || 0);
+            const totalPay = s.credits_payments || 0;
+            const finalOut = s.closing_outstanding || 0;
+
+            tbody += `
+                <tr>
+                    <td class="text-nowrap">${window.Utils.formatMonthYear(s.statement_month)}</td>
+                    <td class="text-right">${window.Utils.formatCurrency(s.opening_balance)}</td>
+                    <td class="text-right">${window.Utils.formatCurrency(s.billed_amount)}</td>
+                    <td class="text-right">${window.Utils.formatCurrency(s.unbilled_amount)}</td>
+                    <td class="text-right fw-bold">${window.Utils.formatCurrency(prePaymentClosing)}</td>
+                    <td class="text-right text-success fw-bold">${window.Utils.formatCurrency(totalPay)}</td>
+                    <td class="text-nowrap">${window.Utils.formatDate(s.due_date)}</td>
+                    <td class="text-nowrap">${payDates}</td>
+                    <td class="text-right fw-bold text-danger">${window.Utils.formatCurrency(finalOut)}</td>
+                </tr>
+            `;
+        });
+
+        if (stmts.length === 0) {
+            tbody = `<tr><td colspan="9" class="text-center py-4 text-muted">No statements found for this card.</td></tr>`;
+        }
+
+        const html = `
+            <style>
+                #modal { max-width: 96vw !important; width: 96vw !important; margin-top: 2vh; }
+                #modal-overlay { backdrop-filter: blur(3px); background-color: rgba(0,0,0,0.4); }
+                .ledger-table th { font-weight: 600; background: #f8f9fa; font-size: 0.85rem; padding: 12px 8px; border-bottom: 2px solid #dee2e6; }
+                .ledger-table td { font-size: 0.9rem; padding: 10px 8px; vertical-align: middle; border-bottom: 1px solid #e9ecef; }
+                .ledger-table { border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; }
+                .ledger-info-item { font-size: 0.95rem; display: inline-block; }
+            </style>
+            
+            <div class="card-ledger-header mb-4 p-3 bg-light rounded border d-flex flex-wrap align-items-center justify-content-center gap-4">
+                <span class="ledger-info-item"><span class="text-muted text-uppercase" style="font-size: 0.75rem;">Card:</span> <strong class="text-primary">${card.zoho_ledger_name || card.cardholder_name}</strong></span>
+                <span class="ledger-info-item border-start ps-4"><span class="text-muted text-uppercase" style="font-size: 0.75rem;">Card Holder Name:</span> <strong>${card.cardholder_name}</strong></span>
+                <span class="ledger-info-item border-start ps-4"><span class="text-muted text-uppercase" style="font-size: 0.75rem;">Total Limit:</span> <strong class="fs-6">${window.Utils.formatCurrency(card.credit_limit)}</strong></span>
+                <span class="ledger-info-item border-start ps-4"><span class="text-muted text-uppercase" style="font-size: 0.75rem;">Renewal Date:</span> <strong>${card.renewal_date ? window.Utils.formatDate(card.renewal_date) : '-'}</strong></span>
+            </div>
+            
+            <div class="table-responsive">
+                <table class="w-100 ledger-table">
+                    <thead>
+                        <tr>
+                            <th>Month</th>
+                            <th class="text-right">Opening Balance</th>
+                            <th class="text-right">Billed Amount</th>
+                            <th class="text-right">Unbilled Amount</th>
+                            <th class="text-right">Closing Outstanding</th>
+                            <th class="text-right">Total Pay</th>
+                            <th>Due Date</th>
+                            <th>Pay at</th>
+                            <th class="text-right">Final outstanding</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tbody}
+                    </tbody>
+                </table>
+            </div>
+            <div class="text-end mt-4 pt-3 border-top">
+                <button class="btn btn-secondary" onclick="window.App.closeModal()">Close</button>
+            </div>
+        `;
+
+        if(window.App && window.App.showModal) window.App.showModal("Card Statement Ledger", html);
     },
 
     viewCard: function(id) {
