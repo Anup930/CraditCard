@@ -1050,3 +1050,76 @@ body.sidebar-collapsed .btn-sidebar {
     color: #ced4da;
 }
 
+/* =============================================
+   Searchable Select Component
+   ============================================= */
+.sselect-wrapper {
+    position: relative;
+    display: block;
+}
+
+.sselect-trigger {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    background: #fff;
+    border: 1px solid #ced4da;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 14px;
+    color: #333;
+    transition: border-color 0.15s;
+    min-height: 38px;
+}
+
+.sselect-trigger:hover {
+    border-color: #4361ee;
+}
+
+.sselect-trigger-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sselect-panel {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 9999;
+    background: #fff;
+    border: 1px solid #d0d5e8;
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(67, 97, 238, 0.12);
+    overflow: hidden;
+}
+
+.sselect-panel input[type="text"] {
+    border-radius: 6px;
+    border: 1px solid #dee2e6;
+    width: 100%;
+}
+
+.sselect-options {
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.sselect-options::-webkit-scrollbar { width: 5px; }
+.sselect-options::-webkit-scrollbar-thumb { background: #d0d5e8; border-radius: 4px; }
+
+.sselect-option {
+    padding: 8px 14px;
+    cursor: pointer;
+    font-size: 13.5px;
+    color: #333;
+    transition: background 0.1s;
+}
+
+.sselect-option:hover {
+    background: #f5f7ff !important;
+}
