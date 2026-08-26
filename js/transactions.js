@@ -19,9 +19,14 @@ window.Transactions = {
                 <h2 class="page-title">Transactions</h2>
                 <div class="page-subtitle text-muted" id="txn-count">Loading transactions...</div>
             </div>
-            <button class="btn btn-outline-primary" onclick="window.Transactions.exportExcel()">
-                <i class="fas fa-file-export"></i> Export to Excel
-            </button>
+            <div class="d-flex gap-2">
+                <button class="btn btn-outline-primary" onclick="window.DataImport.openModal('transactions')">
+                    <i class="fas fa-file-import"></i> Import
+                </button>
+                <button class="btn btn-outline-primary" onclick="window.Transactions.exportExcel()">
+                    <i class="fas fa-file-export"></i> Export to Excel
+                </button>
+            </div>
         `;
 
         const filterBar = document.createElement('div');

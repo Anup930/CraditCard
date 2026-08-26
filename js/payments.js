@@ -48,7 +48,10 @@ window.Payments = {
             <div class="card data-table-wrapper table-responsive mb-4">
                 <div class="table-toolbar">
                     <h4 class="card-title mb-0">All Statements</h4>
-                    <button class="btn btn-primary" onclick="window.Payments.showStatementModal()"><i class="fas fa-plus"></i> Add Statement</button>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-outline-primary" onclick="window.DataImport.openModal('statements')"><i class="fas fa-file-import"></i> Import</button>
+                        <button class="btn btn-primary" onclick="window.Payments.showStatementModal()"><i class="fas fa-plus"></i> Add Statement</button>
+                    </div>
                 </div>
                 <table class="data-table">
                     <thead>
@@ -121,7 +124,10 @@ window.Payments = {
             <div class="card data-table-wrapper table-responsive mb-4">
                 <div class="table-toolbar">
                     <h4 class="card-title mb-0">Payment History</h4>
-                    <button class="btn btn-success" onclick="window.Payments.showPaymentModal()"><i class="fas fa-plus"></i> Record Payment</button>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-outline-primary" onclick="window.DataImport.openModal('payments')"><i class="fas fa-file-import"></i> Import</button>
+                        <button class="btn btn-success" onclick="window.Payments.showPaymentModal()"><i class="fas fa-plus"></i> Record Payment</button>
+                    </div>
                 </div>
                 <table class="data-table">
                     <thead>
