@@ -459,76 +459,205 @@ exportCurrentReport: function() {
     // Dedicated Data Hygiene Page Render
     renderHygiene: function(container) {
         this.container = container;
+        this.hygienePageSize = this.hygienePageSize || 20;
+        this.hygienePage = this.hygienePage || 1;
+        this.hygieneSearch = this.hygieneSearch || '';
         const hData = window.DB.getDataHygiene();
         
-        let mName=0, mAddr=0, mPhone=0, mEmail=0, mLimit=0;
+        let mName=0, mAddr=0, mPhone=0, mEmail=0, mLimit=0, mStmt=0, mDue=0;
         hData.forEach(h => {
             if(h.missing_name) mName++;
             if(h.missing_address) mAddr++;
             if(h.missing_phone) mPhone++;
             if(h.missing_email) mEmail++;
             if(h.missing_limit) mLimit++;
+            if(h.missing_statement_date) mStmt++;
+            if(h.missing_due_date) mDue++;
         });
+
+        const totalIssues = mName + mAddr + mPhone + mEmail + mLimit + mStmt + mDue;
+        const cardsWithIssues = hData.filter(h => h.total_missing > 0).length;
+        const healthPct = hData.length > 0 ? Math.round(((hData.length - cardsWithIssues) / hData.length) * 100) : 100;
+        const healthColor = healthPct >= 80 ? '#10b981' : (healthPct >= 50 ? '#f59e0b' : '#ef4444');
+
+        const statsCards = [
+            { label: 'Missing Name',    count: mName,  icon: 'fa-user',           gradient: 'linear-gradient(135deg,#ff6b6b,#ee5a24)' },
+            { label: 'Missing Address', count: mAddr,  icon: 'fa-map-marker-alt', gradient: 'linear-gradient(135deg,#ffa502,#ff6348)' },
+            { label: 'Missing Phone',   count: mPhone, icon: 'fa-phone',          gradient: 'linear-gradient(135deg,#667eea,#764ba2)' },
+            { label: 'Missing Email',   count: mEmail, icon: 'fa-envelope',       gradient: 'linear-gradient(135deg,#4facfe,#00f2fe)' },
+            { label: 'Missing Limit',   count: mLimit, icon: 'fa-rupee-sign',     gradient: 'linear-gradient(135deg,#f093fb,#f5576c)' },
+            { label: 'Missing Stmt Date', count: mStmt, icon: 'fa-calendar',      gradient: 'linear-gradient(135deg,#a18cd1,#fbc2eb)' },
+            { label: 'Missing Due Date', count: mDue,   icon: 'fa-calendar-check',gradient: 'linear-gradient(135deg,#43e97b,#38f9d7)' }
+        ];
+
+        let statsHtml = statsCards.map(s => `
+            <div style="background:${s.gradient};border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1);transition:transform 0.2s;cursor:default;min-width:140px;flex:1;"
+                 onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform='translateY(0)'">
+                <div style="width:40px;height:40px;border-radius:10px;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                    <i class="fas ${s.icon}" style="font-size:16px;color:#fff;"></i>
+                </div>
+                <div>
+                    <div style="font-size:24px;font-weight:800;color:#fff;line-height:1;">${s.count}</div>
+                    <div style="font-size:11px;color:rgba(255,255,255,0.85);font-weight:500;margin-top:2px;">${s.label}</div>
+                </div>
+            </div>
+        `).join('');
+
+        // Filter data for table (only cards with issues) + search
+        let issueCards = hData.filter(h => h.total_missing > 0);
+        if(this.hygieneSearch) {
+            const q = this.hygieneSearch.toLowerCase();
+            issueCards = issueCards.filter(h =>
+                (h.cardholder_name || '').toLowerCase().includes(q) ||
+                (h.primary_cardholder || '').toLowerCase().includes(q) ||
+                (h.bank_name || '').toLowerCase().includes(q) ||
+                (h.card_last4 || '').toLowerCase().includes(q)
+            );
+        }
+        const total = issueCards.length;
+        const totalPages = Math.ceil(total / this.hygienePageSize) || 1;
+        if(this.hygienePage > totalPages) this.hygienePage = totalPages;
+        if(this.hygienePage < 1) this.hygienePage = 1;
+        const start = (this.hygienePage - 1) * this.hygienePageSize;
+        const paged = issueCards.slice(start, start + this.hygienePageSize);
+
+        const getIco = (miss) => miss
+            ? '<span style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:#fee2e2;"><i class="fas fa-times" style="color:#ef4444;font-size:11px;"></i></span>'
+            : '<span style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:#d1fae5;"><i class="fas fa-check" style="color:#10b981;font-size:11px;"></i></span>';
+
+        let rowsHtml = '';
+        paged.forEach((h, idx) => {
+            const bgColor = idx % 2 === 0 ? '#fff' : '#f9fafb';
+            const missingBar = h.total_missing > 0
+                ? `<span style="display:inline-block;padding:3px 10px;border-radius:20px;background:#fee2e2;color:#ef4444;font-size:12px;font-weight:700;">${h.total_missing}</span>`
+                : '<span style="display:inline-block;padding:3px 10px;border-radius:20px;background:#d1fae5;color:#10b981;font-size:12px;font-weight:700;">0</span>';
+            
+            rowsHtml += `
+            <tr style="background:${bgColor};cursor:pointer;" onmouseover="this.style.background='#eef2ff'" onmouseout="this.style.background='${bgColor}'" onclick="Reports.hygieneEditCard('${h.card_id}')" title="Click to edit this card">
+                <td style="padding:10px 14px;border-bottom:1px solid #f0f0f0;font-weight:600;color:#1a1a2e;"><i class="fas fa-edit" style="color:#667eea;margin-right:6px;font-size:11px;opacity:0.6;"></i>${h.cardholder_name}</td>
+                <td style="padding:10px 14px;border-bottom:1px solid #f0f0f0;color:#495057;">${h.primary_cardholder}</td>
+                <td style="padding:10px 14px;border-bottom:1px solid #f0f0f0;"><span style="padding:3px 10px;border-radius:6px;background:#f0f0f5;font-size:12px;font-weight:600;color:#495057;">${h.bank_name}</span></td>
+                <td style="padding:10px 14px;border-bottom:1px solid #f0f0f0;font-family:monospace;color:#6c757d;">*${h.card_last4}</td>
+                <td style="padding:10px 14px;border-bottom:1px solid #f0f0f0;text-align:center;">${getIco(h.missing_name)}</td>
+                <td style="padding:10px 14px;border-bottom:1px solid #f0f0f0;text-align:center;">${getIco(h.missing_address)}</td>
+                <td style="padding:10px 14px;border-bottom:1px solid #f0f0f0;text-align:center;">${getIco(h.missing_phone)}</td>
+                <td style="padding:10px 14px;border-bottom:1px solid #f0f0f0;text-align:center;">${getIco(h.missing_email)}</td>
+                <td style="padding:10px 14px;border-bottom:1px solid #f0f0f0;text-align:center;">${getIco(h.missing_limit)}</td>
+                <td style="padding:10px 14px;border-bottom:1px solid #f0f0f0;text-align:center;">${getIco(h.missing_statement_date)}</td>
+                <td style="padding:10px 14px;border-bottom:1px solid #f0f0f0;text-align:center;">${getIco(h.missing_due_date)}</td>
+                <td style="padding:10px 14px;border-bottom:1px solid #f0f0f0;text-align:center;">${missingBar}</td>
+            </tr>`;
+        });
+
+        if(paged.length === 0) {
+            rowsHtml = `<tr><td colspan="12" style="text-align:center;padding:50px;color:#10b981;font-weight:600;"><i class="fas fa-check-circle" style="font-size:30px;display:block;margin-bottom:10px;"></i>All cards are clean! No missing data found.</td></tr>`;
+        }
+
+        // Build pagination
+        let pgHtml = '';
+        if(totalPages > 1) {
+            pgHtml += '<div style="display:flex;gap:4px;align-items:center;">';
+            pgHtml += `<button onclick="Reports.hygieneGoPage(${this.hygienePage - 1})" ${this.hygienePage === 1 ? 'disabled' : ''} style="padding:5px 10px;border:1px solid #dee2e6;border-radius:6px;background:#fff;color:#495057;cursor:pointer;font-size:12px;">&laquo; Prev</button>`;
+            for(let i=1;i<=totalPages;i++) {
+                if(i===1||i===totalPages||(i>=this.hygienePage-1&&i<=this.hygienePage+1)) {
+                    const isActive = this.hygienePage === i;
+                    pgHtml += `<button onclick="Reports.hygieneGoPage(${i})" style="padding:5px 10px;border:${isActive?'none':'1px solid #dee2e6'};border-radius:6px;${isActive?'background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;':'background:#fff;color:#495057;'}cursor:pointer;font-size:12px;font-weight:${isActive?'700':'400'};">${i}</button>`;
+                } else if(i===this.hygienePage-2||i===this.hygienePage+2) {
+                    pgHtml += '<span style="padding:5px 6px;font-size:12px;color:#adb5bd;">...</span>';
+                }
+            }
+            pgHtml += `<button onclick="Reports.hygieneGoPage(${this.hygienePage + 1})" ${this.hygienePage === totalPages ? 'disabled' : ''} style="padding:5px 10px;border:1px solid #dee2e6;border-radius:6px;background:#fff;color:#495057;cursor:pointer;font-size:12px;">Next &raquo;</button>`;
+            pgHtml += '</div>';
+        }
 
         let html = `
-            <div class="page-header mb-4">
-                <h2 class="page-title">Data Hygiene</h2>
-                <div class="page-subtitle text-muted">Identify and fix missing card information</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <div>
+                <h2 style="margin:0;font-weight:700;color:#1a1a2e;font-size:22px;">Data Hygiene</h2>
+                <span style="color:#6c757d;font-size:13px;">Identify and fix missing card information · <em style="color:#667eea;">Click any row to edit</em></span>
             </div>
-            
-            <div class="hygiene-grid d-flex flex-wrap gap-3 mb-4">
-                <div class="card p-3 flex-fill text-center border-danger"><h3 class="text-danger">${mName}</h3><div>Missing Name</div></div>
-                <div class="card p-3 flex-fill text-center border-warning"><h3 class="text-warning">${mAddr}</h3><div>Missing Address</div></div>
-                <div class="card p-3 flex-fill text-center border-info"><h3 class="text-info">${mPhone}</h3><div>Missing Phone</div></div>
-                <div class="card p-3 flex-fill text-center border-primary"><h3 class="text-primary">${mEmail}</h3><div>Missing Email</div></div>
-                <div class="card p-3 flex-fill text-center border-secondary"><h3 class="text-secondary">${mLimit}</h3><div>Missing Limit</div></div>
+            <div style="display:flex;align-items:center;gap:12px;">
+                <div style="text-align:center;padding:10px 20px;border-radius:12px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+                    <div style="font-size:11px;color:#6c757d;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Health Score</div>
+                    <div style="font-size:28px;font-weight:800;color:${healthColor};line-height:1.2;">${healthPct}%</div>
+                </div>
+                <div style="text-align:center;padding:10px 20px;border-radius:12px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+                    <div style="font-size:11px;color:#6c757d;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Total Issues</div>
+                    <div style="font-size:28px;font-weight:800;color:#ef4444;line-height:1.2;">${totalIssues}</div>
+                </div>
+            </div>
+        </div>
+
+        <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:24px;">
+            ${statsHtml}
+        </div>
+
+        <div style="background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.08);overflow:hidden;">
+            <div style="padding:16px 20px;border-bottom:1px solid #e9ecef;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <div style="width:34px;height:34px;border-radius:8px;background:linear-gradient(135deg,#667eea,#764ba2);display:flex;align-items:center;justify-content:center;">
+                        <i class="fas fa-broom" style="color:#fff;font-size:14px;"></i>
+                    </div>
+                    <span style="font-weight:700;font-size:15px;color:#1a1a2e;">Cards with Missing Data</span>
+                    <span style="background:#fee2e2;color:#ef4444;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;">${cardsWithIssues} of ${hData.length}</span>
+                </div>
+                <div style="position:relative;">
+                    <i class="fas fa-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#adb5bd;font-size:13px;"></i>
+                    <input type="text" id="hygiene-search" placeholder="Search by name, owner, bank..." value="${this.hygieneSearch}"
+                        oninput="Reports.hygieneSearch=this.value;Reports.hygienePage=1;Reports.renderHygiene(Reports.container);setTimeout(function(){document.getElementById('hygiene-search').focus();},50);"
+                        style="padding:7px 12px 7px 32px;border:1px solid #dee2e6;border-radius:8px;font-size:13px;width:280px;outline:none;background:#f8f9fa;color:#495057;">
+                </div>
             </div>
 
-            <div class="card data-table-wrapper table-responsive">
-                <table class="table table-hover table-bordered mb-0 text-center">
-                    <thead class="table-light">
-                        <tr>
-                            <th class="text-start">Cardholder Name</th>
-                            <th class="text-start">Owner</th>
-                            <th>Bank</th>
-                            <th>Last4</th>
-                            <th>Name</th>
-                            <th>Address</th>
-                            <th>Phone</th>
-                            <th>Email</th>
-                            <th>Limit</th>
-                            <th>Stmt Date</th>
-                            <th>Due Date</th>
-                            <th class="text-danger">Total</th>
+            <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;">
+                    <thead>
+                        <tr style="background:#f8f9fa;">
+                            <th style="padding:12px 14px;font-size:11px;font-weight:700;color:#6c757d;text-transform:uppercase;letter-spacing:0.5px;text-align:left;border-bottom:2px solid #e9ecef;">Cardholder</th>
+                            <th style="padding:12px 14px;font-size:11px;font-weight:700;color:#6c757d;text-transform:uppercase;letter-spacing:0.5px;text-align:left;border-bottom:2px solid #e9ecef;">Owner</th>
+                            <th style="padding:12px 14px;font-size:11px;font-weight:700;color:#6c757d;text-transform:uppercase;letter-spacing:0.5px;text-align:left;border-bottom:2px solid #e9ecef;">Bank</th>
+                            <th style="padding:12px 14px;font-size:11px;font-weight:700;color:#6c757d;text-transform:uppercase;letter-spacing:0.5px;text-align:center;border-bottom:2px solid #e9ecef;">Last4</th>
+                            <th style="padding:12px 14px;font-size:11px;font-weight:700;color:#6c757d;text-transform:uppercase;letter-spacing:0.5px;text-align:center;border-bottom:2px solid #e9ecef;"><i class="fas fa-user" style="opacity:0.5;margin-right:3px;"></i>Name</th>
+                            <th style="padding:12px 14px;font-size:11px;font-weight:700;color:#6c757d;text-transform:uppercase;letter-spacing:0.5px;text-align:center;border-bottom:2px solid #e9ecef;"><i class="fas fa-map-marker-alt" style="opacity:0.5;margin-right:3px;"></i>Addr</th>
+                            <th style="padding:12px 14px;font-size:11px;font-weight:700;color:#6c757d;text-transform:uppercase;letter-spacing:0.5px;text-align:center;border-bottom:2px solid #e9ecef;"><i class="fas fa-phone" style="opacity:0.5;margin-right:3px;"></i>Phone</th>
+                            <th style="padding:12px 14px;font-size:11px;font-weight:700;color:#6c757d;text-transform:uppercase;letter-spacing:0.5px;text-align:center;border-bottom:2px solid #e9ecef;"><i class="fas fa-envelope" style="opacity:0.5;margin-right:3px;"></i>Email</th>
+                            <th style="padding:12px 14px;font-size:11px;font-weight:700;color:#6c757d;text-transform:uppercase;letter-spacing:0.5px;text-align:center;border-bottom:2px solid #e9ecef;"><i class="fas fa-rupee-sign" style="opacity:0.5;margin-right:3px;"></i>Limit</th>
+                            <th style="padding:12px 14px;font-size:11px;font-weight:700;color:#6c757d;text-transform:uppercase;letter-spacing:0.5px;text-align:center;border-bottom:2px solid #e9ecef;"><i class="fas fa-calendar" style="opacity:0.5;margin-right:3px;"></i>Stmt</th>
+                            <th style="padding:12px 14px;font-size:11px;font-weight:700;color:#6c757d;text-transform:uppercase;letter-spacing:0.5px;text-align:center;border-bottom:2px solid #e9ecef;"><i class="fas fa-calendar-check" style="opacity:0.5;margin-right:3px;"></i>Due</th>
+                            <th style="padding:12px 14px;font-size:11px;font-weight:700;color:#6c757d;text-transform:uppercase;letter-spacing:0.5px;text-align:center;border-bottom:2px solid #e9ecef;">Issues</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody>${rowsHtml}</tbody>
+                </table>
+            </div>
+
+            <div style="padding:14px 20px;border-top:1px solid #e9ecef;display:flex;justify-content:space-between;align-items:center;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <select onchange="Reports.hygienePageSize=parseInt(this.value);Reports.hygienePage=1;Reports.renderHygiene(Reports.container);" style="padding:5px 8px;border:1px solid #dee2e6;border-radius:6px;font-size:12px;background:#fff;color:#495057;cursor:pointer;">
+                        <option value="10" ${this.hygienePageSize===10?'selected':''}>10 rows</option>
+                        <option value="20" ${this.hygienePageSize===20?'selected':''}>20 rows</option>
+                        <option value="50" ${this.hygienePageSize===50?'selected':''}>50 rows</option>
+                        <option value="100" ${this.hygienePageSize===100?'selected':''}>100 rows</option>
+                        <option value="200" ${this.hygienePageSize===200?'selected':''}>200 rows</option>
+                    </select>
+                    <span style="font-size:12px;color:#6c757d;">Showing <strong>${total > 0 ? start+1 : 0}</strong> to <strong>${Math.min(start+this.hygienePageSize, total)}</strong> of <strong>${total}</strong> cards with issues</span>
+                </div>
+                ${pgHtml}
+            </div>
+        </div>
         `;
 
-        const getIco = (miss) => miss ? '<i class="fas fa-times text-danger"></i>' : '<i class="fas fa-check text-success"></i>';
-
-        hData.forEach(h => {
-            if(h.total_missing > 0) {
-                html += `
-                    <tr>
-                        <td class="text-start">${h.cardholder_name}</td>
-                        <td class="text-start">${h.primary_cardholder}</td>
-                        <td>${h.bank_name}</td>
-                        <td>${h.card_last4}</td>
-                        <td>${getIco(h.missing_name)}</td>
-                        <td>${getIco(h.missing_address)}</td>
-                        <td>${getIco(h.missing_phone)}</td>
-                        <td>${getIco(h.missing_email)}</td>
-                        <td>${getIco(h.missing_limit)}</td>
-                        <td>${getIco(h.missing_statement_date)}</td>
-                        <td>${getIco(h.missing_due_date)}</td>
-                        <td class="fw-bold text-danger">${h.total_missing}</td>
-                    </tr>
-                `;
-            }
-        });
-
-        html += `</tbody></table></div>`;
         this.container.innerHTML = html;
+    },
+
+    hygieneGoPage: function(p) {
+        this.hygienePage = p;
+        this.renderHygiene(this.container);
+    },
+
+    hygieneEditCard: function(cardId) {
+        if(window.Master && window.Master.editCard) {
+            window.Master.editCard(cardId);
+        }
     }
 };
