@@ -259,7 +259,8 @@ window.App = {
             payments:     'Payments & Statements',
             reports:      'Reports',
             hygiene:      'Data Hygiene',
-            users:        'User Management'
+            users:        'User Management',
+            logs:         'Activity Logs'
         };
         const titleEl = document.getElementById('page-title');
         if (titleEl) titleEl.textContent = titles[page] || page;
@@ -277,6 +278,7 @@ window.App = {
             case 'reports':      if (window.Reports       && Reports.render)       Reports.render(content);       break;
             case 'hygiene':      if (window.Reports       && Reports.renderHygiene) Reports.renderHygiene(content); break;
             case 'users':        if (window.Users         && Users.render)         Users.render(content);         break;
+            case 'logs':         if (window.Logs          && Logs.render)          Logs.render(content);          break;
             default:
                 content.innerHTML = '<div class="empty-state"><i class="fas fa-question-circle"></i><h3>Page not found</h3></div>';
         }

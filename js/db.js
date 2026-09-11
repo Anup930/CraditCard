@@ -16,7 +16,8 @@ window.DB = {
         payments:       [],
         categories:     [],
         import_batches: [],
-        users:          []
+        users:          [],
+        audit_logs:     []
     },
 
     // ── HTTP HELPERS ───────────────────────────────────────────
@@ -36,19 +37,40 @@ window.DB = {
         return res.json();
     },
 
+    async logActivity(module, action, details) {
+        try {
+            const user = JSON.parse(sessionStorage.getItem('ccms_user') || '{"user_id":"System", "username":"System"}');
+            const logData = {
+                log_id: this.nextId('audit_logs'),
+                timestamp: new Date().toISOString(),
+                user_id: user.user_id || 'System',
+                username: user.username || 'System',
+                module: module,
+                action: action,
+                details: details,
+                created_at: new Date().toISOString()
+            };
+            this.data.audit_logs.push(logData);
+            await this.apiPost({ action: 'add', sheet: 'audit_logs', data: logData });
+        } catch(e) {
+            console.error("Failed to log activity:", e);
+        }
+    },
+
     // ── INIT (async — called once on app start) ────────────────
 
     async init() {
         try {
             // Fetch all sheets in parallel
-            const [cards, txns, stmts, pmts, cats, batches, users] = await Promise.all([
+            const [cards, txns, stmts, pmts, cats, batches, users, logs] = await Promise.all([
                 this.apiGet({ action: 'getAll', sheet: 'credit_cards' }),
                 this.apiGet({ action: 'getAll', sheet: 'transactions' }),
                 this.apiGet({ action: 'getAll', sheet: 'statements' }),
                 this.apiGet({ action: 'getAll', sheet: 'payments' }),
                 this.apiGet({ action: 'getAll', sheet: 'categories' }),
                 this.apiGet({ action: 'getAll', sheet: 'import_batches' }),
-                this.apiGet({ action: 'getAll', sheet: 'users' })
+                this.apiGet({ action: 'getAll', sheet: 'users' }),
+                this.apiGet({ action: 'getAll', sheet: 'audit_logs' })
             ]);
 
             this.data.credit_cards   = cards.data   || [];
@@ -58,6 +80,7 @@ window.DB = {
             this.data.categories     = cats.data    || [];
             this.data.import_batches = batches.data || [];
             this.data.users          = users.data   || [];
+            this.data.audit_logs     = logs.data    || [];
 
             // Normalize numeric fields from Sheets (they come as strings)
             this.data.credit_cards.forEach(c => {
@@ -157,6 +180,7 @@ window.DB = {
             // Persist to Sheets
             const res = await DB.apiPost({ action: 'add', sheet: 'credit_cards', data: card });
             if (res.id) card.card_id = res.id;
+            await DB.logActivity('Credit Cards', 'Add', `Added card: ${card.bank_name} - ${card.card_last4} for ${card.cardholder_name}`);
             return card.card_id;
         },
 
@@ -168,12 +192,14 @@ window.DB = {
             if (data.card_type)   data.bank_name  = data.bank_name || Utils.extractBankName(data.card_type);
             Object.assign(DB.data.credit_cards[idx], data);
             await DB.apiPost({ action: 'update', sheet: 'credit_cards', id: id, data: data });
+            await DB.logActivity('Credit Cards', 'Update', `Updated card ID ${id}`);
             return true;
         },
 
         async delete(id) {
             DB.data.credit_cards = DB.data.credit_cards.filter(c => String(c.card_id) !== String(id));
             await DB.apiPost({ action: 'delete', sheet: 'credit_cards', id: id });
+            await DB.logActivity('Credit Cards', 'Delete', `Deleted card ID ${id}`);
         },
 
         getByOwner(name)  { return DB.data.credit_cards.filter(c => c.primary_cardholder === name); },
@@ -208,6 +234,7 @@ window.DB = {
             txn.created_at = Utils.now();
             DB.data.transactions.push(txn);
             await DB.apiPost({ action: 'add', sheet: 'transactions', data: txn });
+            await DB.logActivity('Transactions', 'Add', `Added ${txn.txn_type} of ${txn.amount} on ${txn.txn_date}`);
             return txn.txn_id;
         },
 
@@ -249,6 +276,7 @@ window.DB = {
 
             if (toInsert.length > 0) {
                 await DB.apiPost({ action: 'addBatch', sheet: 'transactions', records: toInsert });
+                await DB.logActivity('Transactions', 'Import', `Imported ${toInsert.length} transactions`);
             }
             return results;
         },
@@ -280,6 +308,7 @@ window.DB = {
             stmt.created_at          = Utils.now();
             DB.data.statements.push(stmt);
             await DB.apiPost({ action: 'add', sheet: 'statements', data: stmt });
+            await DB.logActivity('Statements', 'Add', `Added statement for month ${stmt.statement_month}`);
             return stmt.statement_id;
         },
 
@@ -288,6 +317,7 @@ window.DB = {
             if (idx === -1) return false;
             Object.assign(DB.data.statements[idx], data);
             await DB.apiPost({ action: 'update', sheet: 'statements', id: id, data: data });
+            await DB.logActivity('Statements', 'Update', `Updated statement ID ${id}`);
             return true;
         },
 
@@ -315,6 +345,7 @@ window.DB = {
             pmt.created_at  = Utils.now();
             DB.data.payments.push(pmt);
             await DB.apiPost({ action: 'add', sheet: 'payments', data: pmt });
+            await DB.logActivity('Payments', 'Add', `Added payment of ${pmt.amount} via ${pmt.payment_mode}`);
             return pmt.payment_id;
         },
 
@@ -329,6 +360,7 @@ window.DB = {
             cat.category_id = DB.nextId('categories');
             DB.data.categories.push(cat);
             await DB.apiPost({ action: 'add', sheet: 'categories', data: cat });
+            await DB.logActivity('Categories', 'Add', `Added category: ${cat.category_name}`);
             return cat.category_id;
         }
     },
@@ -348,6 +380,7 @@ window.DB = {
             usr.updated_at = Utils.now();
             DB.data.users.push(usr);
             await DB.apiPost({ action: 'add', sheet: 'users', data: usr });
+            await DB.logActivity('Users', 'Add', `Added user: ${usr.username}`);
             return usr.user_id;
         },
 
@@ -357,12 +390,14 @@ window.DB = {
             data.updated_at = Utils.now();
             Object.assign(DB.data.users[idx], data);
             await DB.apiPost({ action: 'update', sheet: 'users', id: id, data: data });
+            await DB.logActivity('Users', 'Update', `Updated user ID ${id}`);
             return true;
         },
 
         async delete(id) {
             DB.data.users = DB.data.users.filter(u => String(u.user_id) !== String(id));
             await DB.apiPost({ action: 'delete', sheet: 'users', id: id });
+            await DB.logActivity('Users', 'Delete', `Deleted user ID ${id}`);
         }
     },
 
@@ -377,6 +412,7 @@ window.DB = {
             batch.import_date = batch.import_date || Utils.now();
             DB.data.import_batches.push(batch);
             await DB.apiPost({ action: 'add', sheet: 'import_batches', data: batch });
+            await DB.logActivity('Import', 'Add Batch', `Imported batch ${batch.file_name} with ${batch.valid_records} records`);
             return batch.batch_id;
         }
     },

@@ -102,7 +102,7 @@ window.Payments = {
                                 <button class="btn btn-sm btn-icon text-primary" title="View Details" onclick="window.Payments.viewStatement('${s.statement_id}')"><i class="fas fa-eye"></i></button>
                                 <button class="btn btn-sm btn-icon text-warning" title="Edit Statement" onclick="window.Payments.showStatementModal('${s.statement_id}')"><i class="fas fa-edit"></i></button>
                                 ${hasPayment 
-                                    ? `<button class="btn btn-sm btn-outline-info ms-1" onclick="window.Payments.switchTab('payments')">Payment Details</button>` 
+                                    ? `<button class="btn btn-sm btn-outline-info ms-1" onclick="window.Payments.viewStatement('${s.statement_id}')">Payment Details</button>` 
                                     : `<button class="btn btn-sm btn-outline-success ms-1" onclick="window.Payments.showPaymentModal('${s.card_id}', '${s.statement_id}')">Pay</button>`
                                 }
                             </div>
@@ -259,7 +259,7 @@ window.Payments = {
                             <div class="actions" style="align-items: center;">
                                 <button class="btn btn-sm btn-icon text-primary" title="View Details" onclick="window.Payments.viewStatement('${s.statement_id}')"><i class="fas fa-eye"></i></button>
                                 ${s.payment_status === 'Paid' || parseFloat(s.closing_outstanding) <= 0 
-                                    ? `<button class="btn btn-sm btn-outline-info ms-2" onclick="window.Payments.switchTab('payments')">Payment Details</button>`
+                                    ? `<button class="btn btn-sm btn-outline-info ms-2" onclick="window.Payments.viewStatement('${s.statement_id}')">Payment Details</button>`
                                     : `<button class="btn btn-sm btn-success ms-2" onclick="window.Payments.showPaymentModal('${s.card_id}', '${s.statement_id}')">Pay Now</button>`
                                 }
                             </div>
@@ -279,32 +279,141 @@ window.Payments = {
         if(!s) return;
 
         const allCards = window.DB.cards.getAll() || [];
-        const c = allCards.find(x => String(x.card_id) === String(s.card_id));
-        const cardStr = c ? `${c.cardholder_name} - ${c.bank_name} (*${c.card_last4})` : 'Unknown Card';
+        const c = allCards.find(x => String(x.card_id) === String(s.card_id)) || {};
 
-        const statusClass = s.payment_status === 'Paid' ? 'bg-success' : (s.payment_status === 'Overdue' ? 'bg-danger' : 'bg-warning text-dark');
-
-        const hasPayment = (window.DB.payments.getAll() || []).some(p => String(p.statement_id) === String(s.statement_id));
+        const stmtPayments = (window.DB.payments.getAll() || []).filter(p => String(p.statement_id) === String(s.statement_id));
+        
+        let paymentsRows = '';
+        if (stmtPayments.length === 0) {
+            paymentsRows = `<tr><td colspan="4" class="text-center py-3 text-muted">No payments recorded for this statement.</td></tr>`;
+        } else {
+            stmtPayments.forEach(p => {
+                paymentsRows += `
+                    <tr>
+                        <td>${window.Utils.formatDate(p.payment_date)}</td>
+                        <td class="text-right">${window.Utils.formatCurrency(p.amount)}</td>
+                        <td>${p.payment_mode}</td>
+                        <td>${p.reference_no || '-'}</td>
+                    </tr>
+                `;
+            });
+        }
 
         const html = `
-            <div class="row">
-                <div class="col-md-6 mb-3"><strong>Statement Month:</strong> <br>${window.Utils.formatMonthYear(s.statement_month)}</div>
-                <div class="col-md-6 mb-3"><strong>Due Date:</strong> <br>${window.Utils.formatDate(s.due_date)}</div>
-                <div class="col-md-12 mb-3"><strong>Card:</strong> <br>${cardStr}</div>
-                <div class="col-md-6 mb-3"><strong>Opening Balance:</strong> <br>${window.Utils.formatCurrency(s.opening_balance)}</div>
-                <div class="col-md-6 mb-3"><strong>Billed Amount:</strong> <br>${window.Utils.formatCurrency(s.billed_amount)}</div>
-                <div class="col-md-6 mb-3"><strong>Credits/Payments:</strong> <br><span class="text-success">${window.Utils.formatCurrency(s.credits_payments)}</span></div>
-                <div class="col-md-6 mb-3"><strong>Unbilled Amount:</strong> <br>${window.Utils.formatCurrency(s.unbilled_amount)}</div>
-                <div class="col-md-6 mb-3"><strong>Closing Outstanding:</strong> <br><span class="text-danger fw-bold">${window.Utils.formatCurrency(s.closing_outstanding)}</span></div>
-                <div class="col-md-6 mb-3"><strong>Minimum Due:</strong> <br>${window.Utils.formatCurrency(s.minimum_due)}</div>
-                <div class="col-md-12 mb-3"><strong>Status:</strong> <br><span class="badge ${statusClass}">${s.payment_status}</span></div>
+            <style>
+                #modal { max-width: 650px !important; }
+                .stmt-section { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 20px; overflow: hidden; }
+                .stmt-section-title { background: #f8fafc; padding: 12px 16px; font-weight: 600; font-size: 0.95rem; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }
+                .stmt-row { display: flex; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid #f1f5f9; font-size: 0.9rem; }
+                .stmt-row:last-child { border-bottom: none; }
+                .stmt-row .label { color: #64748b; }
+                .stmt-row .value { font-weight: 500; color: #1e293b; text-align: right; }
+                .stmt-row.highlight { background: #e0f2fe; font-weight: 600; }
+                .stmt-row.highlight .label { color: #0369a1; }
+                .stmt-row.highlight .value { color: #0369a1; background: #bae6fd; padding: 2px 6px; border-radius: 4px; }
+                .pmt-table { width: 100%; font-size: 0.85rem; }
+                .pmt-table th { color: #64748b; font-weight: 600; padding: 12px 16px; border-bottom: 1px solid #e2e8f0; text-transform: uppercase; font-size: 0.7rem; }
+                .pmt-table td { padding: 12px 16px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; color: #334155; }
+                .pmt-table tr:last-child td { border-bottom: none; }
+            </style>
+
+            <div class="stmt-section mt-2">
+                <div class="stmt-row">
+                    <span class="label">Statement Month</span>
+                    <span class="value">${window.Utils.formatMonthYear(s.statement_month)}</span>
+                </div>
+                <div class="stmt-row">
+                    <span class="label">Payment due date</span>
+                    <span class="value">${window.Utils.formatDate(s.due_date)}</span>
+                </div>
+                <div class="stmt-row">
+                    <span class="label">Opening balance</span>
+                    <span class="value">${window.Utils.formatCurrency(s.opening_balance)}</span>
+                </div>
+                <div class="stmt-row">
+                    <span class="label">Billed this cycle</span>
+                    <span class="value">${window.Utils.formatCurrency(s.billed_amount)}</span>
+                </div>
+                <div class="stmt-row">
+                    <span class="label">Credits / payments</span>
+                    <span class="value">${window.Utils.formatCurrency(s.credits_payments)}</span>
+                </div>
+                <div class="stmt-row highlight">
+                    <span class="label">Total amount due</span>
+                    <span class="value">${window.Utils.formatCurrency(s.closing_outstanding)}</span>
+                </div>
+                <div class="stmt-row">
+                    <span class="label">Minimum due</span>
+                    <span class="value">${window.Utils.formatCurrency(s.minimum_due)}</span>
+                </div>
+                <div class="stmt-row">
+                    <span class="label">Unbilled amount</span>
+                    <span class="value">${window.Utils.formatCurrency(s.unbilled_amount)}</span>
+                </div>
             </div>
-            <div class="text-end mt-3 border-top pt-3">
-                <button class="btn btn-secondary me-2" onclick="window.App.closeModal()">Close</button>
-                ${hasPayment 
-                    ? `<button class="btn btn-outline-info" onclick="window.App.closeModal(); setTimeout(() => window.Payments.switchTab('payments'), 300)">View Payment History</button>`
-                    : `<button class="btn btn-success" onclick="window.App.closeModal(); setTimeout(() => window.Payments.showPaymentModal('${s.card_id}', '${s.statement_id}'), 300)">Pay Now</button>`
-                }
+
+            <div class="stmt-section">
+                <div class="stmt-section-title">
+                    <span>Card & limits</span>
+                </div>
+                <div class="stmt-row">
+                    <span class="label">Cardholder</span>
+                    <span class="value">${c.cardholder_name || '-'}</span>
+                </div>
+                <div class="stmt-row">
+                    <span class="label">Primary owner</span>
+                    <span class="value">${c.primary_cardholder || '-'}</span>
+                </div>
+                <div class="stmt-row">
+                    <span class="label">Zoho ledger</span>
+                    <span class="value">${c.zoho_ledger_name || '-'}</span>
+                </div>
+                <div class="stmt-row">
+                    <span class="label">Credit limit</span>
+                    <span class="value">${window.Utils.formatCurrency(c.credit_limit)}</span>
+                </div>
+                <div class="stmt-row">
+                    <span class="label">Available limit</span>
+                    <span class="value">${window.Utils.formatCurrency(Math.max(0, (c.credit_limit || 0) - (s.closing_outstanding || 0) - (s.unbilled_amount || 0)))}</span>
+                </div>
+                <div class="stmt-row">
+                    <span class="label">Reward points</span>
+                    <span class="value">${c.reward_points || 0}</span>
+                </div>
+                <div class="stmt-row">
+                    <span class="label">Paid to date</span>
+                    <span class="value">${window.Utils.formatCurrency(s.credits_payments)}</span>
+                </div>
+                <div class="stmt-row">
+                    <span class="label">Still due</span>
+                    <span class="value fw-bold">${window.Utils.formatCurrency(s.closing_outstanding)}</span>
+                </div>
+            </div>
+
+            <div class="stmt-section">
+                <div class="stmt-section-title">
+                    <span>Payments against this statement</span>
+                    <span class="text-muted fw-normal" style="font-size: 0.8rem;">${stmtPayments.length} recorded</span>
+                </div>
+                <table class="pmt-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th class="text-right">Amount</th>
+                            <th>Mode</th>
+                            <th>Reference</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${paymentsRows}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="text-end pt-2 d-flex justify-content-center gap-2">
+                <button class="btn btn-outline-secondary px-4 bg-white" onclick="window.App.closeModal()">Close</button>
+                <button class="btn btn-outline-primary px-4 bg-white border-dark text-dark" onclick="window.App.closeModal(); setTimeout(() => window.Payments.showStatementModal('${s.statement_id}'), 300)">Edit statement</button>
+                <button class="btn btn-primary px-4" style="background:#205e7e;border-color:#205e7e;" onclick="window.App.closeModal(); setTimeout(() => window.Payments.showPaymentModal('${s.card_id}', '${s.statement_id}'), 300)">Add another payment</button>
             </div>
         `;
         if(window.App && window.App.showModal) window.App.showModal("Statement Details", html);
@@ -312,7 +421,7 @@ window.Payments = {
 
     showStatementModal: function(stmtId = null) {
         const stmts = window.DB.statements.getAll() || [];
-        const s = stmts.find(x => x.statement_id === stmtId) || {};
+        const s = stmts.find(x => String(x.statement_id) === String(stmtId)) || {};
         const isEdit = !!stmtId;
         const allCards = window.DB.cards.getAll() || [];
 

@@ -1,5 +1,6 @@
 window.Transactions = {
     currentPage: 1,
+    pageSize: 15,
     filters: {
         dateFrom: '',
         dateTo: '',
@@ -102,7 +103,7 @@ window.Transactions = {
             tDate.setHours(23,59,59);
             txns = txns.filter(t => new Date(t.txn_date) <= tDate);
         }
-        if (this.filters.cardId) txns = txns.filter(t => t.card_id === this.filters.cardId);
+        if (this.filters.cardId) txns = txns.filter(t => String(t.card_id) === String(this.filters.cardId));
         if (this.filters.type) txns = txns.filter(t => t.txn_type === this.filters.type);
         if (this.filters.search) txns = txns.filter(t => 
             String(t.description || '').toLowerCase().includes(this.filters.search) || 
@@ -149,7 +150,7 @@ window.Transactions = {
             </div>
         `;
 
-        const pageSize = 15;
+        const pageSize = this.pageSize || 15;
         const pageData = window.Utils.paginate(txns.length, this.currentPage, pageSize);
         const currentData = txns.slice(pageData.start, pageData.end);
         
@@ -205,21 +206,36 @@ window.Transactions = {
 
         html += `</tbody></table></div>`;
 
+        html += `
+        <div class="card-footer d-flex flex-wrap justify-content-between align-items-center gap-3">
+            <div class="pagination-info d-flex align-items-center gap-3">
+                <span class="text-muted" style="font-size: 0.9rem;">Showing ${txns.length === 0 ? 0 : pageData.start + 1} to ${pageData.end} of ${txns.length} entries</span>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="text-muted small" style="font-size: 0.85rem;">Rows:</span>
+                    <select class="form-select form-select-sm" style="width: auto; cursor: pointer;" onchange="window.Transactions.changePageSize(this.value)">
+                        <option value="15" ${pageSize == 15 ? 'selected' : ''}>15</option>
+                        <option value="30" ${pageSize == 30 ? 'selected' : ''}>30</option>
+                        <option value="50" ${pageSize == 50 ? 'selected' : ''}>50</option>
+                        <option value="100" ${pageSize == 100 ? 'selected' : ''}>100</option>
+                        <option value="200" ${pageSize == 200 ? 'selected' : ''}>200</option>
+                    </select>
+                </div>
+            </div>`;
+
         if (pageData.totalPages > 1) {
             html += `
-            <div class="card-footer d-flex justify-content-between align-items-center">
-                <div class="pagination-info">Showing ${pageData.start + 1} to ${pageData.end} of ${txns.length} entries</div>
-                <ul class="pagination mb-0">
-                    <li class="page-item ${this.currentPage === 1 ? 'disabled' : ''}">
-                        <a class="page-link" href="#" onclick="event.preventDefault(); window.Transactions.goToPage(${this.currentPage - 1})">Prev</a>
-                    </li>
-                    <li class="page-item disabled"><a class="page-link" href="#">Page ${this.currentPage} of ${pageData.totalPages}</a></li>
-                    <li class="page-item ${this.currentPage === pageData.totalPages ? 'disabled' : ''}">
-                        <a class="page-link" href="#" onclick="event.preventDefault(); window.Transactions.goToPage(${this.currentPage + 1})">Next</a>
-                    </li>
-                </ul>
-            </div>`;
+            <ul class="pagination mb-0">
+                <li class="page-item ${this.currentPage === 1 ? 'disabled' : ''}">
+                    <a class="page-link" href="#" onclick="event.preventDefault(); window.Transactions.goToPage(${this.currentPage - 1})">Prev</a>
+                </li>
+                <li class="page-item disabled"><a class="page-link" href="#">Page ${this.currentPage} of ${pageData.totalPages}</a></li>
+                <li class="page-item ${this.currentPage === pageData.totalPages ? 'disabled' : ''}">
+                    <a class="page-link" href="#" onclick="event.preventDefault(); window.Transactions.goToPage(${this.currentPage + 1})">Next</a>
+                </li>
+            </ul>`;
         }
+
+        html += `</div>`;
 
         this.tableWrapper.innerHTML = html;
     },
@@ -229,9 +245,15 @@ window.Transactions = {
         this.renderData();
     },
 
+    changePageSize: function(size) {
+        this.pageSize = parseInt(size) || 15;
+        this.currentPage = 1;
+        this.renderData();
+    },
+
     viewTxn: function(id) {
         const txns = window.DB.transactions.getAll() || [];
-        const txn = txns.find(t => t.txn_id === id);
+        const txn = txns.find(t => String(t.txn_id) === String(id));
         if(!txn) return;
 
         const allCards = window.DB.cards.getAll() || [];
