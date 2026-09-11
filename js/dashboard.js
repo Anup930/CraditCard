@@ -11,26 +11,31 @@ window.Dashboard = {
         // 1. KPI Grid
         const kpiGrid = document.createElement('div');
         kpiGrid.className = 'kpi-grid mb-4';
+        kpiGrid.style.cssText = 'display:grid;grid-template-columns:repeat(4,1fr);gap:16px;';
         
         const kpiData = [
-            { label: 'Total Payable', value: window.Utils.formatCurrency(kpis.totalPayable), icon: 'fa-file-invoice-dollar', kpiClass: 'kpi-payable', iconClass: 'icon-payable' },
-            { label: 'Unbilled Amount', value: window.Utils.formatCurrency(kpis.totalUnbilled), icon: 'fa-clock', kpiClass: 'kpi-unbilled', iconClass: 'icon-unbilled' },
-            { label: 'Total Reward Points', value: window.Utils.formatCurrency(kpis.totalRewards).replace('₹', ''), icon: 'fa-star', kpiClass: 'kpi-rewards', iconClass: 'icon-rewards' },
-            { label: 'Total Cards', value: kpis.totalCards, icon: 'fa-credit-card', kpiClass: 'kpi-cards', iconClass: 'icon-cards' },
-            { label: 'Cards >50% Utilization', value: kpis.over50Count, icon: 'fa-exclamation-triangle', kpiClass: 'kpi-utilization', iconClass: 'icon-utilization' },
-            { label: 'Total Limit', value: window.Utils.formatCurrency(kpis.totalLimit), icon: 'fa-chart-line', kpiClass: 'kpi-limit', iconClass: 'icon-limit' },
-            { label: 'Available Limit', value: window.Utils.formatCurrency(kpis.availableLimit), icon: 'fa-wallet', kpiClass: 'kpi-available', iconClass: 'icon-available' },
-            { label: 'Fee Waiver Balance', value: window.Utils.formatCurrency(kpis.feeWaiverBalance), icon: 'fa-gift', kpiClass: 'kpi-waiver', iconClass: 'icon-waiver' }
+            { label: 'Total Payable',         value: window.Utils.formatCurrency(kpis.totalPayable),      icon: 'fa-file-invoice-dollar', gradient: 'linear-gradient(135deg,#ff6b6b 0%,#ee5a24 100%)' },
+            { label: 'Unbilled Amount',        value: window.Utils.formatCurrency(kpis.totalUnbilled),     icon: 'fa-clock',               gradient: 'linear-gradient(135deg,#ffa502 0%,#ff6348 100%)' },
+            { label: 'Total Reward Points',    value: window.Utils.formatCurrency(kpis.totalRewards).replace('₹', ''), icon: 'fa-star',    gradient: 'linear-gradient(135deg,#f9ca24 0%,#f0932b 100%)' },
+            { label: 'Total Cards',            value: kpis.totalCards,                                     icon: 'fa-credit-card',         gradient: 'linear-gradient(135deg,#667eea 0%,#764ba2 100%)' },
+            { label: 'Cards >50% Utilization', value: kpis.over50Count,                                    icon: 'fa-exclamation-triangle',gradient: 'linear-gradient(135deg,#fc5c7d 0%,#6a82fb 100%)' },
+            { label: 'Total Limit',            value: window.Utils.formatCurrency(kpis.totalLimit),        icon: 'fa-chart-line',          gradient: 'linear-gradient(135deg,#11998e 0%,#38ef7d 100%)' },
+            { label: 'Available Limit',        value: window.Utils.formatCurrency(kpis.availableLimit),    icon: 'fa-wallet',              gradient: 'linear-gradient(135deg,#4facfe 0%,#00f2fe 100%)' },
+            { label: 'Fee Waiver Balance',     value: window.Utils.formatCurrency(kpis.feeWaiverBalance),  icon: 'fa-gift',                gradient: 'linear-gradient(135deg,#a18cd1 0%,#fbc2eb 100%)' }
         ];
 
         kpiData.forEach(item => {
             const card = document.createElement('div');
-            card.className = `kpi-card ${item.kpiClass}`;
+            card.style.cssText = `background:${item.gradient};border-radius:14px;padding:20px 24px;display:flex;align-items:center;gap:16px;box-shadow:0 4px 15px rgba(0,0,0,0.1);transition:transform 0.2s;cursor:default;`;
+            card.onmouseover = function() { this.style.transform = 'translateY(-3px)'; };
+            card.onmouseout  = function() { this.style.transform = 'translateY(0)'; };
             card.innerHTML = `
-                <div class="kpi-icon ${item.iconClass}"><i class="fas ${item.icon}"></i></div>
-                <div class="kpi-info">
-                    <div class="kpi-value">${item.value}</div>
-                    <div class="kpi-label">${item.label}</div>
+                <div style="width:48px;height:48px;border-radius:12px;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                    <i class="fas ${item.icon}" style="font-size:20px;color:#fff;"></i>
+                </div>
+                <div>
+                    <div style="font-size:22px;font-weight:800;color:#fff;line-height:1.2;">${item.value}</div>
+                    <div style="font-size:12px;color:rgba(255,255,255,0.85);font-weight:500;margin-top:2px;">${item.label}</div>
                 </div>
             `;
             kpiGrid.appendChild(card);
@@ -81,23 +86,39 @@ window.Dashboard = {
         dashGrid.appendChild(chartsSection);
         dashGrid.appendChild(alertsPanel);
 
-        // 3. Quick Stats
+        // 3. Quick Stats - Card View
         const quickStats = document.createElement('div');
-        quickStats.className = 'quick-stats card mt-4';
+        quickStats.className = 'quick-stats-grid mt-4';
+        quickStats.style.cssText = 'display:grid;grid-template-columns:repeat(4,1fr);gap:16px;';
         const allCards = window.DB.cards.getAll() || [];
         const primaryCount = allCards.filter(c => c.card_category === 'Primary').length;
         const addonCount = allCards.filter(c => c.card_category === 'Add-on').length;
         const activeCount = allCards.filter(c => c.status === 'Active').length;
-        const banksCount = new Set(allCards.map(c => c.bank_name)).size;
+        const banksCount = new Set(allCards.map(c => c.bank_name).filter(Boolean)).size;
 
-        quickStats.innerHTML = `
-            <div class="card-body d-flex justify-content-between text-center">
-                <div class="quick-stat"><h4>Primary Cards</h4><p>${primaryCount}</p></div>
-                <div class="quick-stat"><h4>Add-on Cards</h4><p>${addonCount}</p></div>
-                <div class="quick-stat"><h4>Active Cards</h4><p>${activeCount}</p></div>
-                <div class="quick-stat"><h4>Banks Covered</h4><p>${banksCount}</p></div>
-            </div>
-        `;
+        const statsData = [
+            { label: 'Primary Cards', value: primaryCount, icon: 'fa-id-card', gradient: 'linear-gradient(135deg,#667eea 0%,#764ba2 100%)', iconBg: 'rgba(255,255,255,0.2)' },
+            { label: 'Add-on Cards', value: addonCount, icon: 'fa-clone', gradient: 'linear-gradient(135deg,#f093fb 0%,#f5576c 100%)', iconBg: 'rgba(255,255,255,0.2)' },
+            { label: 'Active Cards', value: activeCount, icon: 'fa-check-circle', gradient: 'linear-gradient(135deg,#4facfe 0%,#00f2fe 100%)', iconBg: 'rgba(255,255,255,0.2)' },
+            { label: 'Banks Covered', value: banksCount, icon: 'fa-university', gradient: 'linear-gradient(135deg,#43e97b 0%,#38f9d7 100%)', iconBg: 'rgba(255,255,255,0.2)' }
+        ];
+
+        statsData.forEach(s => {
+            const card = document.createElement('div');
+            card.style.cssText = `background:${s.gradient};border-radius:14px;padding:20px 24px;display:flex;align-items:center;gap:16px;box-shadow:0 4px 15px rgba(0,0,0,0.1);transition:transform 0.2s;cursor:default;`;
+            card.onmouseover = function() { this.style.transform = 'translateY(-3px)'; };
+            card.onmouseout  = function() { this.style.transform = 'translateY(0)'; };
+            card.innerHTML = `
+                <div style="width:50px;height:50px;border-radius:12px;background:${s.iconBg};display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                    <i class="fas ${s.icon}" style="font-size:22px;color:#fff;"></i>
+                </div>
+                <div>
+                    <div style="font-size:28px;font-weight:800;color:#fff;line-height:1.1;">${s.value}</div>
+                    <div style="font-size:13px;color:rgba(255,255,255,0.85);font-weight:500;margin-top:2px;">${s.label}</div>
+                </div>
+            `;
+            quickStats.appendChild(card);
+        });
 
         wrapper.appendChild(kpiGrid);
         wrapper.appendChild(dashGrid);

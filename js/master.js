@@ -1,5 +1,6 @@
 window.Master = {
     currentPage: 1,
+    pageSize: 10,
     currentFilter: '',
     currentBankFilter: '',
     currentCategoryFilter: '',
@@ -112,7 +113,7 @@ window.Master = {
         if(this.currentOwnerFilter) cards = cards.filter(c => c.primary_cardholder === this.currentOwnerFilter);
         if(this.currentStatusFilter) cards = cards.filter(c => c.status === this.currentStatusFilter);
 
-        const pageSize = 10;
+        const pageSize = this.pageSize;
         const pageData = window.Utils.paginate(cards.length, this.currentPage, pageSize);
         const currentCards = cards.slice(pageData.start, pageData.end);
 
@@ -170,28 +171,41 @@ window.Master = {
         
         html += `</tbody></table>`;
         
-        // Pagination Controls
-        if (pageData.totalPages > 1) {
-            html += `
-            <div class="card-footer d-flex justify-content-between align-items-center">
-                <div class="pagination-info">Showing ${pageData.start + 1} to ${pageData.end} of ${cards.length} entries</div>
-                <ul class="pagination mb-0">
-                    <li class="page-item ${this.currentPage === 1 ? 'disabled' : ''}">
-                        <a class="page-link" href="#" onclick="event.preventDefault(); window.Master.goToPage(${this.currentPage - 1})">Previous</a>
-                    </li>
-                    <li class="page-item disabled"><a class="page-link" href="#">Page ${this.currentPage} of ${pageData.totalPages}</a></li>
-                    <li class="page-item ${this.currentPage === pageData.totalPages ? 'disabled' : ''}">
-                        <a class="page-link" href="#" onclick="event.preventDefault(); window.Master.goToPage(${this.currentPage + 1})">Next</a>
-                    </li>
-                </ul>
-            </div>`;
-        }
+        // Pagination & Rows Per Page Footer
+        html += `
+        <div class="card-footer d-flex justify-content-between align-items-center">
+            <div class="d-flex align-items-center gap-2">
+                <select class="form-select form-select-sm" style="width:auto;" onchange="window.Master.changePageSize(this.value)">
+                    <option value="10" ${this.pageSize === 10 ? 'selected' : ''}>10 rows</option>
+                    <option value="20" ${this.pageSize === 20 ? 'selected' : ''}>20 rows</option>
+                    <option value="50" ${this.pageSize === 50 ? 'selected' : ''}>50 rows</option>
+                    <option value="100" ${this.pageSize === 100 ? 'selected' : ''}>100 rows</option>
+                    <option value="200" ${this.pageSize === 200 ? 'selected' : ''}>200 rows</option>
+                </select>
+                <span class="pagination-info">Showing ${pageData.start + 1} to ${pageData.end} of ${cards.length} entries</span>
+            </div>
+            <ul class="pagination mb-0">
+                <li class="page-item ${this.currentPage === 1 ? 'disabled' : ''}">
+                    <a class="page-link" href="#" onclick="event.preventDefault(); window.Master.goToPage(${this.currentPage - 1})">Previous</a>
+                </li>
+                <li class="page-item disabled"><a class="page-link" href="#">Page ${this.currentPage} of ${pageData.totalPages || 1}</a></li>
+                <li class="page-item ${this.currentPage === (pageData.totalPages || 1) ? 'disabled' : ''}">
+                    <a class="page-link" href="#" onclick="event.preventDefault(); window.Master.goToPage(${this.currentPage + 1})">Next</a>
+                </li>
+            </ul>
+        </div>`;
 
         this.tableWrapper.innerHTML = html;
     },
 
     goToPage: function(page) {
         this.currentPage = page;
+        this.renderTable();
+    },
+
+    changePageSize: function(size) {
+        this.pageSize = parseInt(size);
+        this.currentPage = 1;
         this.renderTable();
     },
 
