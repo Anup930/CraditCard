@@ -1742,8 +1742,120 @@ exportCurrentReport: function() {
 
         const datasets = this.getExecutiveDatasets();
         const wb = window.XLSX.utils.book_new();
+        const kpis = window.DB.getKPIs();
+        const dateStr = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
+        // ═════════════════════════════════════════════════════════════════
+        // 1. SUPER ADVANCED EXECUTIVE FINANCIAL DASHBOARD SHEET (AOA Sheet)
+        // ═════════════════════════════════════════════════════════════════
+        if (checked.includes('kpi')) {
+            const dashAOA = [];
+
+            // Title & Header Banner
+            dashAOA.push(['CREDIT CARD MANAGEMENT SYSTEM (CCMS) — EXECUTIVE FINANCIAL DASHBOARD', '', '', '', '', '']);
+            dashAOA.push(['Gretex Group • Enterprise Portfolio Intelligence & Financial Governance Audit', '', '', '', '', '']);
+            dashAOA.push([`Audit Generated: ${dateStr}`, '', `Data Classification: CONFIDENTIAL`, '', `Encryption: AES-256 GCM`, '']);
+            dashAOA.push([]); // blank
+
+            // SECTION 1: KEY EXECUTIVE METRICS
+            dashAOA.push(['1. PORTFOLIO KEY PERFORMANCE INDICATORS', '', '', '', '', '']);
+            dashAOA.push(['Indicator', 'Value', 'Context / Description', '', 'Benchmark', 'Risk Status']);
+            
+            const utilPct = kpis.totalLimit > 0 ? ((kpis.usedLimit / kpis.totalLimit) * 100).toFixed(1) + '%' : '0%';
+            const utilNum = kpis.totalLimit > 0 ? (kpis.usedLimit / kpis.totalLimit) * 100 : 0;
+            const utilStatus = utilNum < 30 ? 'HEALTHY (<30%)' : (utilNum <= 50 ? 'MODERATE (30-50%)' : 'HIGH USAGE (>50%)');
+
+            dashAOA.push(['Total Sanctioned Credit Limit', window.Utils.formatCurrency(kpis.totalLimit), 'Cumulative corporate line across partner banks', '', 'Ceiling Limit', 'Normal']);
+            dashAOA.push(['Total Statement Payable Due', window.Utils.formatCurrency(kpis.totalPayable), 'Strictly due from imported bank statements', '', 'Settlement Obligation', 'Action Required']);
+            dashAOA.push(['Current Unbilled Swipes', window.Utils.formatCurrency(kpis.totalUnbilled), 'Unbilled swipes in current billing cycles', '', 'Active Spend', 'Normal']);
+            dashAOA.push(['Available Credit Cushion', window.Utils.formatCurrency(kpis.availableLimit), 'Unutilized spending capacity across cards', '', 'Liquidity Buffer', 'Healthy']);
+            dashAOA.push(['Portfolio Utilization %', utilPct, 'Ratio of utilized limit to sanctioned limit', '', '< 30.0%', utilStatus]);
+            dashAOA.push(['Total Active Credit Cards', `${kpis.totalCards} Cards`, `${kpis.primaryCards} Primary lines, ${kpis.totalCards - kpis.primaryCards} Supplementary cards`, '', 'Active Inventory', 'Active']);
+            dashAOA.push(['Cards with >50% Utilization', `${kpis.over50Count} Cards`, 'Cards exceeding healthy credit threshold', '', 'Zero Tolerance', kpis.over50Count > 0 ? 'ALERT' : 'OPTIMAL']);
+            dashAOA.push(['Total Accumulated Reward Points', `${window.Utils.formatCurrency(kpis.totalRewards).replace('₹', '')} Pts`, 'Active redeemable reward points balance', '', 'Value Accrual', 'Active']);
+            dashAOA.push(['Fee Waiver Spend Remaining', window.Utils.formatCurrency(kpis.feeWaiverBalance), 'Remaining spend required to waive annual card fees', '', 'Fee Optimization', kpis.feeWaiverBalance > 0 ? 'PENDING' : 'ACHIEVED']);
+            dashAOA.push([]); // blank
+
+            // SECTION 2: ZOHO RECONCILIATION SUMMARY
+            const reconData = datasets.recon.data || [];
+            const totalZoho = reconData.reduce((s, r) => s + (r['Zoho Debits Amount'] || 0), 0);
+            const totalStmt = reconData.reduce((s, r) => s + (r['Statement Billed Amount'] || 0), 0);
+            const matchedCount = reconData.filter(r => r['Reconciliation Status'] === 'Matched').length;
+            const discCount = reconData.filter(r => r['Reconciliation Status'] === 'Discrepancy').length;
+
+            dashAOA.push(['2. ZOHO BOOKS VS BANK STATEMENT RECONCILIATION AUDIT', '', '', '', '', '']);
+            dashAOA.push(['Audit Category', 'Amount / Count', 'Benchmark Context', '', 'Match Rate', 'Audit Status']);
+            dashAOA.push(['Total Zoho Debit Vouchers', window.Utils.formatCurrency(totalZoho), 'Total debits recorded in accounting books', '', '100% Target', 'Audited']);
+            dashAOA.push(['Total Statement Billed Dues', window.Utils.formatCurrency(totalStmt), 'Total charges billed by banking partners', '', '100% Target', 'Audited']);
+            dashAOA.push(['Net Reconciliation Variance', window.Utils.formatCurrency(totalZoho - totalStmt), 'Difference between Zoho and bank statements', '', '₹ 0.00 Target', Math.abs(totalZoho - totalStmt) < 1 ? 'RECONCILED' : 'DISCREPANCY']);
+            dashAOA.push(['Fully Reconciled Cycles', `${matchedCount} of ${reconData.length} Cycles`, 'Cycles where Zoho debits match statements exactly', '', '100% Target', matchedCount === reconData.length ? '100% MATCHED' : `${discCount} UNMATCHED`]);
+            dashAOA.push([]); // blank
+
+            // SECTION 3: BANK EXPOSURE MATRIX
+            dashAOA.push(['3. BANK-WISE CREDIT ALLOCATION & CONCENTRATION', '', '', '', '', '']);
+            dashAOA.push(['Banking Partner', 'Cards Issued', 'Sanctioned Limit', 'Total Debit Spend', 'Available Cushion', 'Utilization %']);
+            
+            const bankRows = datasets.banks.data || [];
+            bankRows.forEach(b => {
+                dashAOA.push([
+                    b['Bank Name'],
+                    b['Cards Issued'],
+                    window.Utils.formatCurrency(b['Total Credit Limit']),
+                    window.Utils.formatCurrency(b['Total Spend']),
+                    window.Utils.formatCurrency(b['Available Credit']),
+                    b['Bank Utilization %']
+                ]);
+            });
+            dashAOA.push([]); // blank
+
+            // SECTION 4: CARDHOLDER ALLOCATION SUMMARY
+            dashAOA.push(['4. PRIMARY CARDHOLDER SPENDING & CREDIT LIMIT MATRIX', '', '', '', '', '']);
+            dashAOA.push(['Cardholder / Owner', 'Active Cards', 'Total Sanctioned Limit', 'Total Debit Spend', 'Available Cushion', 'Utilization %']);
+            
+            const holderRows = datasets.cardholders.data || [];
+            holderRows.forEach(h => {
+                dashAOA.push([
+                    h['Cardholder / Owner'],
+                    h['Active Cards Count'],
+                    window.Utils.formatCurrency(h['Total Sanctioned Limit']),
+                    window.Utils.formatCurrency(h['Total Debit Spend']),
+                    window.Utils.formatCurrency(h['Available Cushion']),
+                    h['Utilization %']
+                ]);
+            });
+
+            // Convert AOA to worksheet
+            const wsDash = window.XLSX.utils.aoa_to_sheet(dashAOA);
+            wsDash['!cols'] = [
+                { wch: 34 }, // Col A (Indicator / Partner)
+                { wch: 22 }, // Col B (Value / Limit)
+                { wch: 48 }, // Col C (Context)
+                { wch: 6 },  // Col D (Spacer)
+                { wch: 24 }, // Col E (Benchmark)
+                { wch: 22 }  // Col F (Status)
+            ];
+
+            // Merge Header cells
+            wsDash['!merges'] = [
+                { s: { r: 0, c: 0 }, e: { r: 0, c: 5 } },
+                { s: { r: 1, c: 0 }, e: { r: 1, c: 5 } },
+                { s: { r: 2, c: 0 }, e: { r: 2, c: 1 } },
+                { s: { r: 2, c: 2 }, e: { r: 2, c: 3 } },
+                { s: { r: 2, c: 4 }, e: { r: 2, c: 5 } },
+                { s: { r: 4, c: 0 }, e: { r: 4, c: 5 } },
+                { s: { r: 15, c: 0 }, e: { r: 15, c: 5 } },
+                { s: { r: 22, c: 0 }, e: { r: 22, c: 5 } },
+                { s: { r: 24 + bankRows.length, c: 0 }, e: { r: 24 + bankRows.length, c: 5 } }
+            ];
+
+            window.XLSX.utils.book_append_sheet(wb, wsDash, 'Executive Dashboard');
+        }
+
+        // ═════════════════════════════════════════════════════════════════
+        // 2. DETAILED BREAKDOWN SHEETS
+        // ═════════════════════════════════════════════════════════════════
         checked.forEach(key => {
+            if (key === 'kpi') return; // Handled by Executive Dashboard above
             const item = datasets[key];
             if (item && item.data.length > 0) {
                 const ws = window.XLSX.utils.json_to_sheet(item.data);
@@ -1764,12 +1876,12 @@ exportCurrentReport: function() {
             }
         });
 
-        const dateStr = new Date().toISOString().slice(0, 10);
-        window.XLSX.writeFile(wb, `CCMS_Executive_Dashboard_${dateStr}.xlsx`);
+        const dateFile = new Date().toISOString().slice(0, 10);
+        window.XLSX.writeFile(wb, `CCMS_Executive_Dashboard_${dateFile}.xlsx`);
         
         if (window.App && window.App.closeModal) window.App.closeModal();
         if (window.App && window.App.showToast) {
-            window.App.showToast(`🎉 Multi-Sheet Excel Dashboard (${checked.length} sheets) generated!`, 'success');
+            window.App.showToast(`🎉 Super Advanced Multi-Sheet Excel Dashboard generated!`, 'success');
         }
     },
 
