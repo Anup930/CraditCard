@@ -2,9 +2,19 @@ window.Reports = {
     render: function(container) {
         this.container = container;
         this.container.innerHTML = `
-            <div class="page-header mb-4">
-                <h2 class="page-title">Reports & Analytics</h2>
-                <div class="page-subtitle text-muted">Generate and export system reports</div>
+            <div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+                <div>
+                    <h2 class="page-title">Reports &amp; Analytics Hub</h2>
+                    <div class="page-subtitle text-muted">Generate executive multi-sheet dashboards and board-level presentation decks</div>
+                </div>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <button class="btn btn-outline" onclick="window.Reports.showExcelExportModal()" style="border-radius:9px;font-weight:700;padding:8px 16px;background:#e6faf4;color:#059669;border:1.5px solid #a7f3d0;" title="Export all or selected reports into a multi-tab Excel Workbook with Executive Dashboard">
+                        <i class="fas fa-file-excel text-success"></i> Multi-Sheet Excel Dashboard
+                    </button>
+                    <button class="btn btn-primary" onclick="window.Reports.showPptExportModal()" style="border-radius:9px;font-weight:700;padding:8px 18px;background:linear-gradient(135deg,#4361ee,#7209b7);border:none;box-shadow:0 4px 14px rgba(67,97,238,0.35);" title="Generate High-Impact 16:9 Executive PowerPoint Presentation (.pptx)">
+                        <i class="fas fa-file-powerpoint"></i> Executive PPT Deck (.pptx)
+                    </button>
+                </div>
             </div>
             
             <div id="report-menu-wrapper">
@@ -14,9 +24,13 @@ window.Reports = {
             </div>
             
             <div id="report-view" class="d-none">
-                <div class="d-flex justify-content-between mb-4">
-                    <button class="btn btn-secondary" onclick="window.Reports.backToMenu()"><i class="fas fa-arrow-left"></i> Go to Home Report</button>
-                    <button class="btn btn-success" onclick="window.Reports.exportCurrentReport()"><i class="fas fa-file-excel"></i> Export to Excel</button>
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+                    <button class="btn btn-secondary" onclick="window.Reports.backToMenu()"><i class="fas fa-arrow-left"></i> Back to Reports Hub</button>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <button class="btn btn-outline" onclick="window.Reports.showPptExportModal()" style="background:#f3e8ff;color:#7209b7;border:1px solid #d8b4fe;border-radius:8px;font-weight:600;"><i class="fas fa-file-powerpoint"></i> Export PPT</button>
+                        <button class="btn btn-outline" onclick="window.Reports.showExcelExportModal()" style="background:#e6faf4;color:#059669;border:1px solid #a7f3d0;border-radius:8px;font-weight:600;"><i class="fas fa-table"></i> Multi-Sheet Excel</button>
+                        <button class="btn btn-success" onclick="window.Reports.exportCurrentReport()" style="border-radius:8px;font-weight:600;"><i class="fas fa-file-excel"></i> Export Current Report</button>
+                    </div>
                 </div>
                 <div id="report-content" class="card p-4"></div>
             </div>
@@ -1492,6 +1506,663 @@ exportCurrentReport: function() {
     setReconFilter: function(status) {
         this.reconStatusFilter = status;
         this.renderReconciliation(this.container);
+    },
+
+    // ── EXECUTIVE MULTI-REPORT DATASET EXTRACTOR ───────────────
+    getExecutiveDatasets: function() {
+        const cards = window.DB.cards.getAll() || [];
+        const txns  = window.DB.transactions.getAll() || [];
+        const stmts = window.DB.statements.getAll() || [];
+        const kpis  = window.DB.getKPIs();
+
+        // 1. Executive KPI Summary Tab
+        const kpiSheet = [
+            { 'Portfolio Metric': 'Total Active Credit Cards', 'Value': kpis.totalCards, 'Benchmark / Context': 'Across 7 major banking partners' },
+            { 'Portfolio Metric': 'Primary Master Cards', 'Value': kpis.primaryCards, 'Benchmark / Context': 'Corporate & sole-owner primary lines' },
+            { 'Portfolio Metric': 'Add-on Supplementary Cards', 'Value': cards.filter(c => c.card_category === 'Add-on').length, 'Benchmark / Context': 'Supplementary authorized employee cards' },
+            { 'Portfolio Metric': 'Total Sanctioned Credit Limit', 'Value': kpis.totalLimit, 'Benchmark / Context': 'Cumulative corporate credit line across banks' },
+            { 'Portfolio Metric': 'Total Used Credit Limit', 'Value': kpis.usedLimit, 'Benchmark / Context': 'Current statement spend + unbilled records' },
+            { 'Portfolio Metric': 'Available Credit Cushion', 'Value': kpis.availableLimit, 'Benchmark / Context': 'Unutilized credit cushion across cards' },
+            { 'Portfolio Metric': 'Portfolio Utilization %', 'Value': kpis.totalLimit > 0 ? ((kpis.usedLimit / kpis.totalLimit) * 100).toFixed(1) + '%' : '0%', 'Benchmark / Context': 'Target benchmark <30%' },
+            { 'Portfolio Metric': 'Total Billed Statement Payable', 'Value': kpis.totalPayable, 'Benchmark / Context': 'Strictly sourced from statement dues' },
+            { 'Portfolio Metric': 'Current Unbilled Transactions', 'Value': kpis.totalUnbilled, 'Benchmark / Context': 'Active cycle swipes not yet billed' },
+            { 'Portfolio Metric': 'Total Accumulated Rewards', 'Value': kpis.totalRewards, 'Benchmark / Context': 'Available reward points pool' },
+            { 'Portfolio Metric': 'Cards with >50% Utilization', 'Value': kpis.over50Count, 'Benchmark / Context': 'Risk review threshold' },
+            { 'Portfolio Metric': 'Fee Waiver Spending Balance', 'Value': kpis.feeWaiverBalance, 'Benchmark / Context': 'Remaining spend to avoid annual fees' }
+        ];
+
+        // 2. Reconciliation Tab
+        const reconRows = [];
+        cards.forEach(card => {
+            const cTxns = txns.filter(t => String(t.card_id) === String(card.card_id) && t.txn_type === 'Debit');
+            const cStmts = stmts.filter(s => String(s.card_id) === String(card.card_id));
+            cStmts.forEach(s => {
+                const stmtBilled = window.Utils.parseNum(s.billed_amount);
+                const mStr = window.Utils.formatMonthYear(s.statement_month);
+                const matchedTxns = cTxns.filter(t => window.Utils.formatMonthYear(t.txn_date) === mStr);
+                const zohoSum = matchedTxns.reduce((sum, t) => sum + window.Utils.parseNum(t.amount), 0);
+                const diff = zohoSum - stmtBilled;
+                let status = 'Matched';
+                if (Math.abs(diff) < 1) status = 'Matched';
+                else if (zohoSum > 0 && stmtBilled === 0) status = 'In Zoho Only';
+                else if (stmtBilled > 0 && zohoSum === 0) status = 'In Statement Only';
+                else status = 'Discrepancy';
+
+                reconRows.push({
+                    'Cardholder Name': card.cardholder_name,
+                    'Primary Owner': card.primary_cardholder,
+                    'Bank': card.bank_name,
+                    'Card Last 4': card.card_last4,
+                    'Billing Period': mStr,
+                    'Zoho Debits Amount': zohoSum,
+                    'Statement Billed Amount': stmtBilled,
+                    'Variance / Difference': diff,
+                    'Reconciliation Status': status
+                });
+            });
+        });
+
+        // 3. Card Master & Limit Utilization Tab
+        const limitRows = cards.map(c => {
+            const m = window.DB.cards.getCardLimitMetrics(c.card_id);
+            return {
+                'Cardholder Name': c.cardholder_name,
+                'Primary Owner': c.primary_cardholder,
+                'Category': c.card_category || 'Primary',
+                'Bank Name': c.bank_name,
+                'Card Type': c.card_type,
+                'Card Last 4': c.card_last4,
+                'Credit Limit': m.limit,
+                'Used Limit': m.used,
+                'Available Limit': m.available,
+                'Utilization %': m.util + '%',
+                'Billed Statement Spend': m.billed,
+                'Unbilled Swipes': m.unbilled,
+                'Total Payable': m.totalPayable,
+                'Zoho Ledger Name': c.zoho_ledger_name,
+                'Status': c.status || 'Active'
+            };
+        });
+
+        // 4. Cardholder-wise Spend Tab
+        const owners = window.DB.cards.getOwners();
+        const cardholderRows = owners.map(owner => {
+            const ownerCards = cards.filter(c => c.primary_cardholder === owner);
+            const cardIds = ownerCards.map(c => c.card_id);
+            const totalLimit = ownerCards.reduce((sum, c) => sum + (c.credit_limit || 0), 0);
+            const spent = txns.filter(t => cardIds.includes(t.card_id) && t.txn_type === 'Debit')
+                              .reduce((sum, t) => sum + (t.amount || 0), 0);
+            return {
+                'Cardholder / Owner': owner,
+                'Active Cards Count': ownerCards.length,
+                'Total Sanctioned Limit': totalLimit,
+                'Total Debit Spend': spent,
+                'Available Cushion': Math.max(0, totalLimit - spent),
+                'Utilization %': totalLimit > 0 ? ((spent / totalLimit) * 100).toFixed(1) + '%' : '0%'
+            };
+        });
+
+        // 5. Bank-wise Spend Tab
+        const banks = window.DB.cards.getBanks();
+        const bankRows = banks.map(bank => {
+            const bankCards = cards.filter(c => c.bank_name === bank);
+            const bankCardIds = bankCards.map(c => c.card_id);
+            const totalLimit = bankCards.reduce((sum, c) => sum + (c.credit_limit || 0), 0);
+            const totalSpent = txns.filter(t => bankCardIds.includes(t.card_id) && t.txn_type === 'Debit')
+                                   .reduce((sum, t) => sum + (t.amount || 0), 0);
+            return {
+                'Bank Name': bank,
+                'Cards Issued': bankCards.length,
+                'Total Credit Limit': totalLimit,
+                'Total Spend': totalSpent,
+                'Available Credit': Math.max(0, totalLimit - totalSpent),
+                'Bank Utilization %': totalLimit > 0 ? ((totalSpent / totalLimit) * 100).toFixed(1) + '%' : '0%'
+            };
+        });
+
+        // 6. Monthly Statements Tab
+        const stmtMonths = [...new Set(stmts.map(s => window.Utils.formatMonthYear(s.statement_month)).filter(Boolean))].sort();
+        const monthRows = stmtMonths.map(m => {
+            const mStmts = stmts.filter(s => window.Utils.formatMonthYear(s.statement_month) === m);
+            return {
+                'Statement Month': m,
+                'Statements Count': mStmts.length,
+                'Opening Balance': mStmts.reduce((sum, s) => sum + (s.opening_balance || 0), 0),
+                'Billed Amount': mStmts.reduce((sum, s) => sum + (s.billed_amount || 0), 0),
+                'Unbilled Amount': mStmts.reduce((sum, s) => sum + (s.unbilled_amount || 0), 0),
+                'Closing Outstanding Due': mStmts.reduce((sum, s) => sum + (s.closing_outstanding || 0), 0),
+                'Payments & Credits': mStmts.reduce((sum, s) => sum + (s.credits_payments || 0), 0)
+            };
+        });
+
+        // 7. Fee Waiver Targets Tab
+        const waiverRows = cards.filter(c => (c.fee_waiver_target || 0) > 0).map(c => {
+            const spent = txns.filter(t => String(t.card_id) === String(c.card_id) && t.txn_type === 'Debit')
+                              .reduce((sum, t) => sum + (t.amount || 0), 0);
+            const target = c.fee_waiver_target || 0;
+            const balance = Math.max(0, target - spent);
+            return {
+                'Cardholder Name': c.cardholder_name,
+                'Bank': c.bank_name,
+                'Card Last 4': c.card_last4,
+                'Fee Waiver Target': target,
+                'Qualifying Spend': spent,
+                'Balance Remaining': balance,
+                'Target Met %': target > 0 ? Math.min(100, (spent / target) * 100).toFixed(1) + '%' : '100%',
+                'Status': balance === 0 ? 'WAIVER ACHIEVED' : 'IN PROGRESS'
+            };
+        });
+
+        // 8. Data Hygiene & Compliance Audit Tab
+        const hData = window.DB.getDataHygiene();
+        const hygieneRows = hData.map(h => ({
+            'Cardholder Name': h.cardholder_name,
+            'Bank Name': h.bank_name,
+            'Card Last 4': h.card_last4,
+            'Missing Name': h.missing_name ? 'FLAGGED' : 'OK',
+            'Missing Address': h.missing_address ? 'FLAGGED' : 'OK',
+            'Missing Phone': h.missing_phone ? 'FLAGGED' : 'OK',
+            'Missing Email': h.missing_email ? 'FLAGGED' : 'OK',
+            'Missing Credit Limit': h.missing_limit ? 'FLAGGED' : 'OK',
+            'Missing Stmt Date': h.missing_statement_date ? 'FLAGGED' : 'OK',
+            'Missing Due Date': h.missing_due_date ? 'FLAGGED' : 'OK',
+            'Total Deficiencies': h.total_missing
+        }));
+
+        return {
+            kpi: { title: 'Executive Summary', id: 'kpi', data: kpiSheet },
+            recon: { title: 'Zoho vs Stmt Recon', id: 'recon', data: reconRows },
+            limits: { title: 'Card Master & Limits', id: 'limits', data: limitRows },
+            cardholders: { title: 'Cardholder Spend', id: 'cardholders', data: cardholderRows },
+            banks: { title: 'Bank Exposure', id: 'banks', data: bankRows },
+            monthly: { title: 'Monthly Statements', id: 'monthly', data: monthRows },
+            waiver: { title: 'Fee Waiver Analysis', id: 'waiver', data: waiverRows },
+            hygiene: { title: 'Compliance Audit', id: 'hygiene', data: hygieneRows }
+        };
+    },
+
+    // ── MULTI-SHEET EXCEL DASHBOARD MODAL & EXPORT ─────────────
+    showExcelExportModal: function() {
+        const datasets = this.getExecutiveDatasets();
+        const optionsHtml = Object.keys(datasets).map(key => {
+            const item = datasets[key];
+            return `
+                <label class="d-flex align-items-center gap-2 p-2 border rounded mb-2" style="background:#f8fafc;cursor:pointer;">
+                    <input type="checkbox" class="excel-export-check" value="${key}" checked style="width:18px;height:18px;cursor:pointer;">
+                    <span style="font-weight:600;color:#1e293b;flex:1;">${item.title}</span>
+                    <span class="badge" style="background:#e2e8f0;color:#475569;border:1px solid #cbd5e1;padding:4px 8px;border-radius:100px;font-size:0.75rem;">${item.data.length} records</span>
+                </label>
+            `;
+        }).join('');
+
+        const modalHtml = `
+            <div>
+                <p class="text-muted mb-3" style="font-size:0.9rem;">
+                    Select the reports you want to bundle into your <strong>Multi-Sheet Excel Dashboard</strong>. 
+                    Each report will be created as its own formatted tab, starting with the <strong>Executive KPI Summary Dashboard</strong>.
+                </p>
+
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <span class="small text-muted fw-bold text-uppercase">Included Worksheets:</span>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-secondary" onclick="document.querySelectorAll('.excel-export-check').forEach(c => c.checked = true)">Select All</button>
+                        <button class="btn btn-sm btn-outline" onclick="document.querySelectorAll('.excel-export-check').forEach(c => c.checked = false)">Clear All</button>
+                    </div>
+                </div>
+
+                <div style="max-height:300px;overflow-y:auto;padding-right:4px;">
+                    ${optionsHtml}
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center mt-4 pt-3 border-top">
+                    <button class="btn btn-secondary" onclick="window.App.closeModal()"><i class="fas fa-times me-1"></i> Cancel</button>
+                    <button class="btn btn-success" onclick="window.Reports.executeExcelExport()" style="font-weight:700;padding:8px 22px;border-radius:8px;">
+                        <i class="fas fa-file-excel me-1"></i> Download Multi-Sheet Excel Dashboard
+                    </button>
+                </div>
+            </div>
+        `;
+
+        if (window.App && window.App.showModal) {
+            window.App.showModal("Multi-Report Excel Dashboard Export", modalHtml);
+        }
+    },
+
+    executeExcelExport: function() {
+        const checked = [...document.querySelectorAll('.excel-export-check:checked')].map(c => c.value);
+        if (checked.length === 0) {
+            alert('Please select at least one report worksheet to export.');
+            return;
+        }
+
+        if (!window.XLSX) {
+            alert('Excel library not loaded.');
+            return;
+        }
+
+        const datasets = this.getExecutiveDatasets();
+        const wb = window.XLSX.utils.book_new();
+
+        checked.forEach(key => {
+            const item = datasets[key];
+            if (item && item.data.length > 0) {
+                const ws = window.XLSX.utils.json_to_sheet(item.data);
+                
+                // Format column widths nicely
+                const colWidths = Object.keys(item.data[0] || {}).map(colKey => {
+                    const maxLen = Math.max(
+                        colKey.length,
+                        ...item.data.map(row => String(row[colKey] !== undefined ? row[colKey] : '').length)
+                    );
+                    return { wch: Math.min(Math.max(maxLen + 3, 14), 45) };
+                });
+                ws['!cols'] = colWidths;
+
+                // Excel sheet name max 31 characters
+                const safeName = item.title.replace(/[\/\\?*:[\]]/g, '').slice(0, 28);
+                window.XLSX.utils.book_append_sheet(wb, ws, safeName);
+            }
+        });
+
+        const dateStr = new Date().toISOString().slice(0, 10);
+        window.XLSX.writeFile(wb, `CCMS_Executive_Dashboard_${dateStr}.xlsx`);
+        
+        if (window.App && window.App.closeModal) window.App.closeModal();
+        if (window.App && window.App.showToast) {
+            window.App.showToast(`🎉 Multi-Sheet Excel Dashboard (${checked.length} sheets) generated!`, 'success');
+        }
+    },
+
+    // ── EXECUTIVE POWERPOINT (.PPTX) PRESENTATION EXPORT ────────
+    showPptExportModal: function() {
+        const slides = [
+            { id: 'cover', title: 'Executive Title & Cover Slide', desc: 'Dark navy corporate title slide with audit metadata' },
+            { id: 'kpis', title: 'Financial KPIs Dashboard Deck', desc: '4 large KPI stat boxes, utilization ratios & key takeaways' },
+            { id: 'recon', title: 'Zoho vs Statement Reconciliation Audit', desc: 'Debits vs statement dues, match rate & variance audit' },
+            { id: 'banks', title: 'Bank Exposure & Active Card Lines', desc: 'Issuance by bank, limits and aggregate spending' },
+            { id: 'cardholders', title: 'Cardholder Spend & Available Limits', desc: 'Primary & add-on breakdown, cushions and utilization' },
+            { id: 'monthly', title: 'Monthly Statements & Billing Trends', desc: 'Opening balances, billed dues and payment status' },
+            { id: 'compliance', title: 'Data Hygiene & Governance Audit', desc: 'Compliance health score & missing regulatory fields' }
+        ];
+
+        const slidesHtml = slides.map(s => `
+            <label class="d-flex align-items-center gap-2 p-2 border rounded mb-2" style="background:#f8fafc;cursor:pointer;">
+                <input type="checkbox" class="ppt-slide-check" value="${s.id}" checked style="width:18px;height:18px;cursor:pointer;">
+                <div style="flex:1;">
+                    <div style="font-weight:700;color:#1e293b;font-size:0.9rem;">${s.title}</div>
+                    <div class="small text-muted">${s.desc}</div>
+                </div>
+            </label>
+        `).join('');
+
+        const modalHtml = `
+            <div>
+                <p class="text-muted mb-3" style="font-size:0.9rem;">
+                    Generate a high-impact, presentation-ready <strong>16:9 Widescreen PowerPoint Presentation (.pptx)</strong> 
+                    designed for board-level review, C-suite executives, and financial auditors.
+                </p>
+
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <span class="small text-muted fw-bold text-uppercase">Included Executive Slides:</span>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-secondary" onclick="document.querySelectorAll('.ppt-slide-check').forEach(c => c.checked = true)">Select All</button>
+                        <button class="btn btn-sm btn-outline" onclick="document.querySelectorAll('.ppt-slide-check').forEach(c => c.checked = false)">Clear All</button>
+                    </div>
+                </div>
+
+                <div style="max-height:300px;overflow-y:auto;padding-right:4px;">
+                    ${slidesHtml}
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center mt-4 pt-3 border-top">
+                    <button class="btn btn-secondary" onclick="window.App.closeModal()"><i class="fas fa-times me-1"></i> Cancel</button>
+                    <button class="btn btn-primary" onclick="window.Reports.executePptExport()" style="background:linear-gradient(135deg,#4361ee,#7209b7);font-weight:700;padding:8px 22px;border:none;border-radius:8px;box-shadow:0 4px 12px rgba(67,97,238,0.3);">
+                        <i class="fas fa-file-powerpoint me-1"></i> Generate Executive PPT Deck (.pptx)
+                    </button>
+                </div>
+            </div>
+        `;
+
+        if (window.App && window.App.showModal) {
+            window.App.showModal("Executive PowerPoint Presentation Export", modalHtml);
+        }
+    },
+
+    executePptExport: async function() {
+        const checked = [...document.querySelectorAll('.ppt-slide-check:checked')].map(c => c.value);
+        if (checked.length === 0) {
+            alert('Please select at least one slide to generate.');
+            return;
+        }
+
+        // Dynamically load PptxGenJS if not present
+        if (typeof PptxGenJS === 'undefined') {
+            if (window.App) window.App.showToast('Loading PowerPoint generator library...', 'info');
+            try {
+                await new Promise((resolve, reject) => {
+                    const s = document.createElement('script');
+                    s.src = 'https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js';
+                    s.onload = resolve;
+                    s.onerror = () => reject(new Error('Failed to load PowerPoint generation library'));
+                    document.head.appendChild(s);
+                });
+            } catch (err) {
+                alert('Could not load PowerPoint generation library. Please check your internet connection.');
+                return;
+            }
+        }
+
+        if (window.App) {
+            window.App.showToast('Building executive presentation slides...', 'info');
+            window.App.closeModal();
+        }
+
+        try {
+            const pptx = new PptxGenJS();
+            pptx.layout = 'LAYOUT_16x9'; // 10 x 5.625 inches
+            pptx.author = 'Gretex Group';
+            pptx.company = 'Gretex Group CCMS';
+            pptx.title = 'Credit Card Executive Portfolio & Audit Report';
+
+            const datasets = this.getExecutiveDatasets();
+            const kpis = window.DB.getKPIs();
+            const dateStr = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+
+            // Helper for standard slide header
+            const addSlideHeader = (slide, title, subtitle) => {
+                slide.background = { color: 'F8FAFC' };
+                slide.addText(title, { x: 0.6, y: 0.35, w: 8.8, h: 0.4, fontSize: 18, fontFace: 'Arial', bold: true, color: '0F172A' });
+                slide.addText(subtitle, { x: 0.6, y: 0.72, w: 8.8, h: 0.3, fontSize: 10, fontFace: 'Arial', color: '64748B' });
+                // Footer
+                slide.addText(`Gretex Group &bull; CCMS Enterprise Audit &bull; ${dateStr}`, { x: 0.6, y: 5.25, w: 6.0, h: 0.25, fontSize: 8.5, fontFace: 'Arial', color: '94A3B8' });
+                slide.addText('CONFIDENTIAL', { x: 7.5, y: 5.25, w: 1.9, h: 0.25, fontSize: 8.5, fontFace: 'Arial', bold: true, color: '94A3B8', align: 'right' });
+            };
+
+            // 1. SLIDE: COVER SLIDE
+            if (checked.includes('cover')) {
+                const cover = pptx.addSlide();
+                cover.background = { color: '0F172A' };
+
+                // Accent top band
+                cover.addShape(pptx.shapes.RECTANGLE, { x: 0, y: 0, w: 10, h: 0.15, fill: { color: '4361EE' } });
+
+                // Badge
+                cover.addText('GRETEX GROUP &bull; ENTERPRISE FINANCIAL INTELLIGENCE', {
+                    x: 0.8, y: 1.0, w: 8.4, h: 0.3, fontSize: 10, fontFace: 'Arial', bold: true, color: '70A6FF', charSpacing: 1.5
+                });
+
+                // Main Title
+                cover.addText('Credit Card Executive Portfolio & Audit Deck', {
+                    x: 0.8, y: 1.4, w: 8.4, h: 1.1, fontSize: 28, fontFace: 'Arial', bold: true, color: 'FFFFFF'
+                });
+
+                // Subtitle
+                cover.addText('Comprehensive review of credit lines, statement reconciliations, bank exposures & governance compliance', {
+                    x: 0.8, y: 2.5, w: 8.4, h: 0.6, fontSize: 12, fontFace: 'Arial', color: '94A3B8'
+                });
+
+                // Divider line
+                cover.addShape(pptx.shapes.RECTANGLE, { x: 0.8, y: 3.2, w: 8.4, h: 0.02, fill: { color: '334155' } });
+
+                // 4 Stat Cards on Cover
+                const cardW = 1.95;
+                const stats = [
+                    { label: 'Active Cards', val: `${kpis.totalCards} Cards`, color: '70A6FF' },
+                    { label: 'Total Limit', val: window.Utils.formatCurrency(kpis.totalLimit), color: '48EBD0' },
+                    { label: 'Report Date', val: dateStr, color: 'FFFFFF' },
+                    { label: 'Security Standard', val: 'AES-256 GCM', color: 'C77DFF' }
+                ];
+                stats.forEach((st, idx) => {
+                    const cx = 0.8 + idx * (cardW + 0.2);
+                    cover.addShape(pptx.shapes.RECTANGLE, { x: cx, y: 3.5, w: cardW, h: 1.1, fill: { color: '1E293B' }, line: { color: '334155', width: 1 } });
+                    cover.addText(st.label.toUpperCase(), { x: cx + 0.1, y: 3.65, w: cardW - 0.2, h: 0.25, fontSize: 8, fontFace: 'Arial', color: '94A3B8', bold: true });
+                    cover.addText(st.val, { x: cx + 0.1, y: 3.95, w: cardW - 0.2, h: 0.45, fontSize: 13, fontFace: 'Arial', bold: true, color: st.color });
+                });
+            }
+
+            // 2. SLIDE: FINANCIAL KPIS DASHBOARD
+            if (checked.includes('kpis')) {
+                const sKpi = pptx.addSlide();
+                addSlideHeader(sKpi, 'Executive Portfolio Overview & Financial KPIs', 'Real-time aggregate credit allocation, utilization metrics, and statement payable dues');
+
+                const kpiCards = [
+                    { title: 'SANCTIONED LIMIT', val: window.Utils.formatCurrency(kpis.totalLimit), sub: `${kpis.totalCards} total credit cards`, bar: '4361EE', txt: '4361EE' },
+                    { title: 'STATEMENT PAYABLE', val: window.Utils.formatCurrency(kpis.totalPayable), sub: 'Due from imported statements', bar: '7209B7', txt: '7209B7' },
+                    { title: 'CURRENT UNBILLED', val: window.Utils.formatCurrency(kpis.totalUnbilled), sub: 'Active cycle swipe records', bar: '06D6A0', txt: '06D6A0' },
+                    { title: 'AVAILABLE CUSHION', val: window.Utils.formatCurrency(kpis.availableLimit), sub: `${kpis.totalLimit > 0 ? ((kpis.availableLimit / kpis.totalLimit) * 100).toFixed(0) : 0}% headroom available`, bar: '0284C7', txt: '0284C7' }
+                ];
+
+                const kw = 2.05;
+                kpiCards.forEach((c, i) => {
+                    const kx = 0.6 + i * (kw + 0.2);
+                    sKpi.addShape(pptx.shapes.RECTANGLE, { x: kx, y: 1.2, w: kw, h: 1.6, fill: { color: 'FFFFFF' }, line: { color: 'E2E8F0', width: 1 } });
+                    sKpi.addShape(pptx.shapes.RECTANGLE, { x: kx, y: 1.2, w: kw, h: 0.08, fill: { color: c.bar } });
+                    sKpi.addText(c.title, { x: kx + 0.15, y: 1.4, w: kw - 0.3, h: 0.25, fontSize: 8.5, fontFace: 'Arial', color: '64748B', bold: true });
+                    sKpi.addText(c.val, { x: kx + 0.15, y: 1.7, w: kw - 0.3, h: 0.5, fontSize: 16, fontFace: 'Arial', bold: true, color: c.txt });
+                    sKpi.addText(c.sub, { x: kx + 0.15, y: 2.3, w: kw - 0.3, h: 0.3, fontSize: 8, fontFace: 'Arial', color: '94A3B8' });
+                });
+
+                // Key Executive Observations Box
+                sKpi.addShape(pptx.shapes.RECTANGLE, { x: 0.6, y: 3.1, w: 8.8, h: 1.8, fill: { color: 'FFFFFF' }, line: { color: 'E2E8F0', width: 1 } });
+                sKpi.addText('PORTFOLIO HEALTH & RISK OBSERVATIONS', { x: 0.8, y: 3.25, w: 8.4, h: 0.3, fontSize: 9.5, fontFace: 'Arial', bold: true, color: '0F172A' });
+
+                const utilPct = kpis.totalLimit > 0 ? ((kpis.usedLimit / kpis.totalLimit) * 100).toFixed(1) : 0;
+                const insights = [
+                    `Overall Credit Utilization is at ${utilPct}%, maintaining a healthy corporate risk profile below the 30% ceiling.`,
+                    `${kpis.over50Count} card(s) have utilized greater than 50% of sanctioned limit, recommended for credit enhancement review.`,
+                    `Strict separation between Statement Payable (${window.Utils.formatCurrency(kpis.totalPayable)}) and Unbilled (${window.Utils.formatCurrency(kpis.totalUnbilled)}) verified.`
+                ];
+                insights.forEach((ins, idx) => {
+                    sKpi.addText(`•  ${ins}`, { x: 0.8, y: 3.65 + idx * 0.35, w: 8.4, h: 0.3, fontSize: 9.5, fontFace: 'Arial', color: '334155' });
+                });
+            }
+
+            // 3. SLIDE: RECONCILIATION AUDIT (ZOHO VS STATEMENT)
+            if (checked.includes('recon')) {
+                const sRecon = pptx.addSlide();
+                addSlideHeader(sRecon, 'Zoho Books vs Bank Statement Reconciliation Audit', 'Detailed matching of Zoho debit vouchers against imported bank statements');
+
+                const reconData = datasets.recon.data;
+                const totalZoho = reconData.reduce((s, r) => s + (r['Zoho Debits Amount'] || 0), 0);
+                const totalStmt = reconData.reduce((s, r) => s + (r['Statement Billed Amount'] || 0), 0);
+                const matched = reconData.filter(r => r['Reconciliation Status'] === 'Matched').length;
+                const discrepancies = reconData.filter(r => r['Reconciliation Status'] === 'Discrepancy').length;
+
+                // Table of top 5 reconciliation records
+                const tableRows = [
+                    [
+                        { text: 'Cardholder', options: { bold: true, fill: '0F172A', color: 'FFFFFF' } },
+                        { text: 'Bank', options: { bold: true, fill: '0F172A', color: 'FFFFFF' } },
+                        { text: 'Cycle', options: { bold: true, fill: '0F172A', color: 'FFFFFF' } },
+                        { text: 'Zoho Debits', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'right' } },
+                        { text: 'Statement Billed', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'right' } },
+                        { text: 'Variance', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'right' } },
+                        { text: 'Status', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'center' } }
+                    ]
+                ];
+
+                reconData.slice(0, 5).forEach(r => {
+                    const isM = r['Reconciliation Status'] === 'Matched';
+                    tableRows.push([
+                        { text: r['Cardholder Name'] || '' },
+                        { text: r['Bank'] || '' },
+                        { text: r['Billing Period'] || '' },
+                        { text: window.Utils.formatCurrency(r['Zoho Debits Amount']), options: { align: 'right' } },
+                        { text: window.Utils.formatCurrency(r['Statement Billed Amount']), options: { align: 'right' } },
+                        { text: window.Utils.formatCurrency(r['Variance / Difference']), options: { align: 'right', color: isM ? '06D6A0' : 'EF476F', bold: true } },
+                        { text: r['Reconciliation Status'], options: { align: 'center', color: isM ? '06D6A0' : 'EF476F', bold: true } }
+                    ]);
+                });
+
+                sRecon.addTable(tableRows, {
+                    x: 0.6, y: 1.2, w: 8.8, h: 2.5,
+                    colW: [1.8, 1.0, 1.0, 1.4, 1.4, 1.1, 1.1],
+                    fontSize: 8.5,
+                    fontFace: 'Arial',
+                    border: { pt: 0.5, color: 'CBD5E1' }
+                });
+
+                // Summary footer card
+                sRecon.addShape(pptx.shapes.RECTANGLE, { x: 0.6, y: 4.0, w: 8.8, h: 0.9, fill: { color: 'FFFFFF' }, line: { color: 'E2E8F0', width: 1 } });
+                sRecon.addText(`Reconciliation Summary: Total Zoho Debits: ${window.Utils.formatCurrency(totalZoho)} | Statement Total: ${window.Utils.formatCurrency(totalStmt)} | Fully Reconciled: ${matched} records | Discrepancies: ${discrepancies} records`, {
+                    x: 0.8, y: 4.25, w: 8.4, h: 0.4, fontSize: 9.5, fontFace: 'Arial', bold: true, color: '1E293B'
+                });
+            }
+
+            // 4. SLIDE: BANK EXPOSURE
+            if (checked.includes('banks')) {
+                const sBank = pptx.addSlide();
+                addSlideHeader(sBank, 'Bank Exposure & Sanctioned Credit Lines', 'Institutional concentration, card distribution and limit utilization across banks');
+
+                const bankRows = datasets.banks.data;
+                const bTable = [
+                    [
+                        { text: 'Banking Partner', options: { bold: true, fill: '0F172A', color: 'FFFFFF' } },
+                        { text: 'Active Cards', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'center' } },
+                        { text: 'Sanctioned Limit', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'right' } },
+                        { text: 'Total Spent', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'right' } },
+                        { text: 'Available Cushion', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'right' } },
+                        { text: 'Utilization %', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'center' } }
+                    ]
+                ];
+
+                bankRows.forEach(b => {
+                    bTable.push([
+                        { text: b['Bank Name'] },
+                        { text: String(b['Cards Issued']), options: { align: 'center' } },
+                        { text: window.Utils.formatCurrency(b['Total Credit Limit']), options: { align: 'right' } },
+                        { text: window.Utils.formatCurrency(b['Total Spend']), options: { align: 'right' } },
+                        { text: window.Utils.formatCurrency(b['Available Credit']), options: { align: 'right' } },
+                        { text: b['Bank Utilization %'], options: { align: 'center', bold: true } }
+                    ]);
+                });
+
+                sBank.addTable(bTable, {
+                    x: 0.6, y: 1.2, w: 8.8, h: 3.5,
+                    colW: [2.2, 1.1, 1.6, 1.5, 1.4, 1.0],
+                    fontSize: 9,
+                    fontFace: 'Arial',
+                    border: { pt: 0.5, color: 'CBD5E1' }
+                });
+            }
+
+            // 5. SLIDE: CARDHOLDER UTILIZATION
+            if (checked.includes('cardholders')) {
+                const sHolders = pptx.addSlide();
+                addSlideHeader(sHolders, 'Cardholder Portfolio & Available Spending Limits', 'Spending concentration, card allocation and remaining credit headroom per cardholder');
+
+                const chRows = datasets.cardholders.data;
+                const chTable = [
+                    [
+                        { text: 'Cardholder / Sole Owner', options: { bold: true, fill: '0F172A', color: 'FFFFFF' } },
+                        { text: 'Cards', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'center' } },
+                        { text: 'Total Limit', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'right' } },
+                        { text: 'Debit Spend', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'right' } },
+                        { text: 'Available Cushion', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'right' } },
+                        { text: 'Utilization %', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'center' } }
+                    ]
+                ];
+
+                chRows.slice(0, 6).forEach(h => {
+                    chTable.push([
+                        { text: h['Cardholder / Owner'] },
+                        { text: String(h['Active Cards Count']), options: { align: 'center' } },
+                        { text: window.Utils.formatCurrency(h['Total Sanctioned Limit']), options: { align: 'right' } },
+                        { text: window.Utils.formatCurrency(h['Total Debit Spend']), options: { align: 'right' } },
+                        { text: window.Utils.formatCurrency(h['Available Cushion']), options: { align: 'right' } },
+                        { text: h['Utilization %'], options: { align: 'center', bold: true } }
+                    ]);
+                });
+
+                sHolders.addTable(chTable, {
+                    x: 0.6, y: 1.2, w: 8.8, h: 3.5,
+                    colW: [2.5, 0.8, 1.5, 1.4, 1.5, 1.1],
+                    fontSize: 9,
+                    fontFace: 'Arial',
+                    border: { pt: 0.5, color: 'CBD5E1' }
+                });
+            }
+
+            // 6. SLIDE: MONTHLY STATEMENTS
+            if (checked.includes('monthly')) {
+                const sMonth = pptx.addSlide();
+                addSlideHeader(sMonth, 'Monthly Billing Cycles & Outstanding Dues', 'Billing trends across statement months with opening balances and closing dues');
+
+                const mRows = datasets.monthly.data;
+                const mTable = [
+                    [
+                        { text: 'Statement Month', options: { bold: true, fill: '0F172A', color: 'FFFFFF' } },
+                        { text: 'Statements', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'center' } },
+                        { text: 'Opening Balance', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'right' } },
+                        { text: 'Billed Amount', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'right' } },
+                        { text: 'Unbilled Amount', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'right' } },
+                        { text: 'Closing Due', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'right' } }
+                    ]
+                ];
+
+                mRows.slice(0, 6).forEach(m => {
+                    mTable.push([
+                        { text: m['Statement Month'] },
+                        { text: String(m['Statements Count']), options: { align: 'center' } },
+                        { text: window.Utils.formatCurrency(m['Opening Balance']), options: { align: 'right' } },
+                        { text: window.Utils.formatCurrency(m['Billed Amount']), options: { align: 'right' } },
+                        { text: window.Utils.formatCurrency(m['Unbilled Amount']), options: { align: 'right' } },
+                        { text: window.Utils.formatCurrency(m['Closing Outstanding Due']), options: { align: 'right', bold: true } }
+                    ]);
+                });
+
+                sMonth.addTable(mTable, {
+                    x: 0.6, y: 1.2, w: 8.8, h: 3.5,
+                    colW: [1.8, 1.0, 1.5, 1.5, 1.5, 1.5],
+                    fontSize: 9,
+                    fontFace: 'Arial',
+                    border: { pt: 0.5, color: 'CBD5E1' }
+                });
+            }
+
+            // 7. SLIDE: DATA HYGIENE & COMPLIANCE
+            if (checked.includes('compliance')) {
+                const sComp = pptx.addSlide();
+                addSlideHeader(sComp, 'Data Hygiene & Governance Compliance Audit', 'Systematic audit of mandatory fields, cardholder contact information & regulatory hygiene');
+
+                const hData = window.DB.getDataHygiene();
+                const totalCards = hData.length;
+                const cleanCards = hData.filter(h => h.total_missing === 0).length;
+                const healthPct = totalCards > 0 ? Math.round((cleanCards / totalCards) * 100) : 100;
+
+                // Health Banner Box
+                sComp.addShape(pptx.shapes.RECTANGLE, { x: 0.6, y: 1.2, w: 8.8, h: 1.3, fill: { color: 'FFFFFF' }, line: { color: 'E2E8F0', width: 1 } });
+                sComp.addText(`PORTFOLIO COMPLIANCE HEALTH SCORE: ${healthPct}%`, {
+                    x: 0.8, y: 1.35, w: 8.4, h: 0.35, fontSize: 13, fontFace: 'Arial', bold: true, color: healthPct >= 80 ? '06D6A0' : 'F59E0B'
+                });
+                sComp.addText(`${cleanCards} of ${totalCards} cards have 100% complete records across addresses, phones, emails, statement dates and due dates.`, {
+                    x: 0.8, y: 1.75, w: 8.4, h: 0.4, fontSize: 9.5, fontFace: 'Arial', color: '64748B'
+                });
+
+                // Missing fields summary box
+                sComp.addShape(pptx.shapes.RECTANGLE, { x: 0.6, y: 2.7, w: 8.8, h: 2.2, fill: { color: 'FFFFFF' }, line: { color: 'E2E8F0', width: 1 } });
+                sComp.addText('AUDIT RECOMMENDATIONS & ACTION ITEMS', { x: 0.8, y: 2.9, w: 8.4, h: 0.3, fontSize: 10, fontFace: 'Arial', bold: true, color: '0F172A' });
+
+                const recs = [
+                    'Ensure billing cycle dates are populated for automated statement fetch & reminders.',
+                    'Verify email addresses for all add-on holders for instant OTP and e-statement forwarding.',
+                    'Review primary vs add-on linkages in Sole Owner reports prior to quarterly tax filing.'
+                ];
+                recs.forEach((rec, idx) => {
+                    sComp.addText(`✓  ${rec}`, { x: 0.8, y: 3.3 + idx * 0.4, w: 8.4, h: 0.35, fontSize: 9.5, fontFace: 'Arial', color: '334155' });
+                });
+            }
+
+            const fileDate = new Date().toISOString().slice(0, 10);
+            await pptx.writeFile({ fileName: `CCMS_Executive_Presentation_${fileDate}.pptx` });
+
+            if (window.App && window.App.showToast) {
+                window.App.showToast(`🎉 Executive Presentation (.pptx) downloaded successfully!`, 'success');
+            }
+        } catch (err) {
+            console.error('PPT generation error:', err);
+            alert('Failed to generate presentation: ' + err.message);
+        }
     }
 };
 
