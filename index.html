@@ -134,8 +134,11 @@
                         <span id="card-count-badge" class="badge badge-info" title="Total cards">
                             <i class="fas fa-credit-card"></i> <span id="total-card-count">0</span>
                         </span>
-                        <span id="db-status" class="badge badge-success" title="Database status">
-                            <i class="fas fa-cloud"></i> Google Sheets
+                        <button id="btn-cloud-sync" class="btn btn-sm" style="display:inline-flex;align-items:center;gap:6px;font-size:0.75rem;padding:5px 12px;border-radius:100px;background:#e8f0fe;color:#1a73e8;border:1px solid #c2e7ff;cursor:pointer;" title="Click to sync latest data with Google Sheets">
+                            <i class="fas fa-sync-alt" id="sync-icon"></i> <span id="sync-text">Cloud Sync</span>
+                        </button>
+                        <span id="db-status" class="badge badge-success" title="Hardware-Accelerated AES-GCM 256-bit Encryption Active">
+                            <i class="fas fa-shield-alt"></i> AES-256
                         </span>
                         <span id="user-badge" class="badge" style="background:#eef0ff;color:#4361ee;">
                             <i class="fas fa-user-circle"></i>
@@ -199,6 +202,7 @@
 
     <!-- ===== App Scripts ===== -->
     <script src="js/utils.js"></script>
+    <script src="js/crypto-store.js"></script>
     <script src="js/db.js"></script>
     <script src="js/dashboard.js"></script>
     <script src="js/master.js"></script>
