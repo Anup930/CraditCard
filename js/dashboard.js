@@ -455,6 +455,79 @@ window.Dashboard = {
         wrapper.appendChild(matricesGrid);
 
         // ═════════════════════════════════════════════════════════════════
+        // PAYMENT DUE AGING TIMELINE SECTION (Urgency Horizons & Chart)
+        // ═════════════════════════════════════════════════════════════════
+        const agingBuckets = this.getPaymentDueAgingBuckets(filteredStmts, allCards);
+
+        const dueAgingCard = document.createElement('div');
+        dueAgingCard.className = 'card p-4 mb-4';
+        dueAgingCard.style.cssText = 'border-radius:16px;border:1px solid #e2e8f0;box-shadow:0 4px 20px rgba(0,0,0,0.04);background:#ffffff;';
+
+        let agingPillsHtml = '';
+        const pillStyles = [
+            { id: 'today',    label: 'Due Today',       icon: 'fa-bell',           gradient: 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)', shadow: 'rgba(239, 68, 68, 0.25)' },
+            { id: 'tomorrow', label: 'Due Tomorrow',    icon: 'fa-hourglass-half', gradient: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)', shadow: 'rgba(249, 115, 22, 0.25)' },
+            { id: 'days3',    label: 'Due in 3 Days',   icon: 'fa-calendar-day',   gradient: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', shadow: 'rgba(245, 158, 11, 0.25)' },
+            { id: 'days7',    label: 'Due in 7 Days',   icon: 'fa-calendar-week',  gradient: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', shadow: 'rgba(59, 130, 246, 0.25)' },
+            { id: 'days15',   label: 'Due in 15 Days',  icon: 'fa-calendar-alt',   gradient: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', shadow: 'rgba(139, 92, 246, 0.25)' }
+        ];
+
+        pillStyles.forEach(p => {
+            const b = agingBuckets[p.id];
+            agingPillsHtml += `
+                <div style="flex:1;min-width:170px;background:${p.gradient};border-radius:14px;padding:16px 18px;color:#fff;box-shadow:0 6px 16px ${p.shadow};transition:transform 0.2s;" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform='translateY(0)'">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span style="font-size:0.75rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:rgba(255,255,255,0.9);">${p.label}</span>
+                        <div style="width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;">
+                            <i class="fas ${p.icon}" style="font-size:0.85rem;"></i>
+                        </div>
+                    </div>
+                    <div style="font-size:1.4rem;font-weight:800;line-height:1.2;">${window.Utils.formatCurrency(b.amount)}</div>
+                    <div style="font-size:0.75rem;color:rgba(255,255,255,0.85);margin-top:3px;font-weight:600;">
+                        ${b.count} ${b.count === 1 ? 'Card Statement' : 'Card Statements'}
+                    </div>
+                </div>
+            `;
+        });
+
+        dueAgingCard.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div>
+                    <h4 style="font-size:1.05rem;font-weight:800;color:#0f172a;margin:0;display:flex;align-items:center;gap:8px;">
+                        <i class="fas fa-money-check-alt text-danger"></i> Statement Payment Due Aging &amp; Cashflow Timeline
+                    </h4>
+                    <div style="font-size:0.82rem;color:#64748b;margin-top:2px;">
+                        Upcoming settlement obligations categorized by urgency horizons: Today, Tomorrow, 3 Days, 7 Days &amp; 15 Days
+                    </div>
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-primary" onclick="window.Reports && window.Reports.loadReport ? window.Reports.loadReport('payment_due_aging', 'Payment Due Aging & Liquidity Schedule') : App.navigate('reports')" style="background:linear-gradient(135deg,#ef4444,#b91c1c);border:none;border-radius:8px;font-weight:700;padding:6px 14px;box-shadow:0 4px 10px rgba(239,68,68,0.3);">
+                        <i class="fas fa-file-invoice-dollar me-1"></i> View Detailed Aging Report
+                    </button>
+                </div>
+            </div>
+
+            <!-- Urgency Metric Horizon Pills -->
+            <div class="d-flex flex-wrap gap-3 mb-4">
+                ${agingPillsHtml}
+            </div>
+
+            <!-- Due Aging Timeline Chart Container -->
+            <div style="background:#f8fafc;border-radius:12px;padding:16px;border:1px solid #e2e8f0;">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span style="font-size:0.8rem;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.5px;">
+                        <i class="fas fa-chart-bar text-primary me-1"></i> Liquidity Requirement by Due Horizon (Amounts &amp; Card Counts)
+                    </span>
+                    <span class="badge bg-white text-muted border">Dual-Axis Aging Horizon</span>
+                </div>
+                <div style="height:230px;position:relative;">
+                    <canvas id="paymentDueAgingChart"></canvas>
+                </div>
+            </div>
+        `;
+        wrapper.appendChild(dueAgingCard);
+
+        // ═════════════════════════════════════════════════════════════════
         // BOTTOM QUICK STATS CARDS (4 Modern Gradient Cards)
         // ═════════════════════════════════════════════════════════════════
         const primaryCount = filteredCards.filter(c => c.card_category === 'Primary').length;
@@ -568,8 +641,84 @@ window.Dashboard = {
             });
         }
 
-        // Render Charts with current filtered view
-        this.renderCharts(filteredCards, filteredTxns);
+        // Render charts after DOM insertion
+        this.renderCharts(filteredCards, filteredTxns, filteredStmts);
+    },
+
+    getPaymentDueAgingBuckets: function(stmts, cards) {
+        stmts = stmts || window.DB.statements.getAll() || [];
+        cards = cards || window.DB.cards.getAll() || [];
+
+        // Filter only statements with outstanding dues
+        const pendingStmts = stmts.filter(s => s.payment_status !== 'Paid' && (s.closing_outstanding || 0) > 0);
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const buckets = {
+            today:    { count: 0, amount: 0, items: [] },
+            tomorrow: { count: 0, amount: 0, items: [] },
+            days3:    { count: 0, amount: 0, items: [] },
+            days7:    { count: 0, amount: 0, items: [] },
+            days15:   { count: 0, amount: 0, items: [] },
+            overdue:  { count: 0, amount: 0, items: [] },
+            later:    { count: 0, amount: 0, items: [] }
+        };
+
+        pendingStmts.forEach(s => {
+            let dueDate = null;
+            if (s.due_date) {
+                dueDate = new Date(s.due_date);
+            } else {
+                // Fallback to card's standard due day if statement due_date is absent
+                const card = cards.find(c => String(c.card_id) === String(s.card_id));
+                if (card && card.due_date) {
+                    const stmtMonth = s.statement_month ? new Date(s.statement_month) : new Date();
+                    dueDate = new Date(stmtMonth.getFullYear(), stmtMonth.getMonth(), parseInt(card.due_date));
+                }
+            }
+
+            if (!dueDate || isNaN(dueDate.getTime())) return;
+            dueDate.setHours(0, 0, 0, 0);
+
+            const diffTime = dueDate.getTime() - today.getTime();
+            const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+            const amt = window.Utils.parseNum(s.closing_outstanding);
+
+            const entry = { statement: s, daysRemaining: diffDays, amount: amt, dueDate };
+
+            if (diffDays < 0) {
+                buckets.overdue.count++;
+                buckets.overdue.amount += amt;
+                buckets.overdue.items.push(entry);
+            } else if (diffDays === 0) {
+                buckets.today.count++;
+                buckets.today.amount += amt;
+                buckets.today.items.push(entry);
+            } else if (diffDays === 1) {
+                buckets.tomorrow.count++;
+                buckets.tomorrow.amount += amt;
+                buckets.tomorrow.items.push(entry);
+            } else if (diffDays <= 3) {
+                buckets.days3.count++;
+                buckets.days3.amount += amt;
+                buckets.days3.items.push(entry);
+            } else if (diffDays <= 7) {
+                buckets.days7.count++;
+                buckets.days7.amount += amt;
+                buckets.days7.items.push(entry);
+            } else if (diffDays <= 15) {
+                buckets.days15.count++;
+                buckets.days15.amount += amt;
+                buckets.days15.items.push(entry);
+            } else {
+                buckets.later.count++;
+                buckets.later.amount += amt;
+                buckets.later.items.push(entry);
+            }
+        });
+
+        return buckets;
     },
 
     generateAlerts: function() {
@@ -622,9 +771,10 @@ window.Dashboard = {
         return alerts;
     },
 
-    renderCharts: function(cards, txns) {
+    renderCharts: function(cards, txns, stmts) {
         cards = cards || window.DB.cards.getAll() || [];
         txns = txns || window.DB.transactions.getAll() || [];
+        stmts = stmts || window.DB.statements.getAll() || [];
 
         // Destroy existing charts
         this.charts.forEach(c => c.destroy());
@@ -675,7 +825,7 @@ window.Dashboard = {
             this.charts.push(bankChart);
         }
 
-        // 2. Monthly Spending Trend (Bar + Line Combo)
+        // 2. Monthly Spending Trend (Bar Chart)
         const trendCanvas = document.getElementById('trendChart');
         if (trendCanvas && window.Chart) {
             const monthlyData = {};
@@ -733,6 +883,118 @@ window.Dashboard = {
                 }
             });
             this.charts.push(trendChart);
+        }
+
+        // 3. Payment Due Aging Timeline Chart (Dual-Axis Bar & Line)
+        const agingCanvas = document.getElementById('paymentDueAgingChart');
+        if (agingCanvas && window.Chart) {
+            const agingBuckets = this.getPaymentDueAgingBuckets(stmts, cards);
+            const horizonLabels = ['Today', 'Tomorrow', 'In 3 Days', 'In 7 Days', 'In 15 Days', 'Overdue'];
+            const horizonAmounts = [
+                agingBuckets.today.amount,
+                agingBuckets.tomorrow.amount,
+                agingBuckets.days3.amount,
+                agingBuckets.days7.amount,
+                agingBuckets.days15.amount,
+                agingBuckets.overdue.amount
+            ];
+            const horizonCounts = [
+                agingBuckets.today.count,
+                agingBuckets.tomorrow.count,
+                agingBuckets.days3.count,
+                agingBuckets.days7.count,
+                agingBuckets.days15.count,
+                agingBuckets.overdue.count
+            ];
+
+            const agingChart = new window.Chart(agingCanvas, {
+                type: 'bar',
+                data: {
+                    labels: horizonLabels,
+                    datasets: [
+                        {
+                            type: 'bar',
+                            label: 'Due Amount (₹)',
+                            data: horizonAmounts,
+                            backgroundColor: [
+                                'rgba(239, 68, 68, 0.85)',
+                                'rgba(249, 115, 22, 0.85)',
+                                'rgba(245, 158, 11, 0.85)',
+                                'rgba(59, 130, 246, 0.85)',
+                                'rgba(139, 92, 246, 0.85)',
+                                'rgba(220, 38, 38, 0.85)'
+                            ],
+                            borderRadius: 8,
+                            yAxisID: 'y'
+                        },
+                        {
+                            type: 'line',
+                            label: 'Statements Count',
+                            data: horizonCounts,
+                            borderColor: '#0f172a',
+                            backgroundColor: '#0f172a',
+                            borderWidth: 2,
+                            pointRadius: 5,
+                            pointBackgroundColor: '#ffffff',
+                            pointBorderColor: '#0f172a',
+                            pointBorderWidth: 2,
+                            tension: 0.3,
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    scales: {
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            beginAtZero: true,
+                            grid: { color: '#f1f5f9' },
+                            ticks: {
+                                callback: (val) => window.Utils.formatCurrency(val).replace('.00', '')
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            beginAtZero: true,
+                            grid: { drawOnChartArea: false },
+                            ticks: {
+                                stepSize: 1,
+                                precision: 0
+                            }
+                        },
+                        x: {
+                            grid: { display: false }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: { boxWidth: 14, font: { size: 11, family: 'Inter, Arial', weight: '600' } }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(ctx) {
+                                    if (ctx.dataset.type === 'line') {
+                                        return ` Statements: ${ctx.raw}`;
+                                    }
+                                    return ` Amount Due: ${window.Utils.formatCurrency(ctx.raw)}`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            this.charts.push(agingChart);
         }
     }
 };

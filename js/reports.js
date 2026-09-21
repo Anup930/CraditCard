@@ -50,6 +50,7 @@ window.Reports = {
             { id: 'bank_wise', title: 'Bank-wise Report', icon: 'fa-university', desc: 'Cards and spending by bank' },
             { id: 'monthly_stmt', title: 'Monthly Statement Report', icon: 'fa-calendar-alt', desc: 'Statement summary by month' },
             { id: 'payment_out', title: 'Payment / Outstanding', icon: 'fa-money-check-alt', desc: 'Payment history and pending dues' },
+            { id: 'payment_due_aging', title: 'Payment Due Aging & Liquidity Schedule', icon: 'fa-hourglass-half', desc: 'Upcoming statement dues by urgency (Today, Tomorrow, 3d, 7d, 15d)' },
             { id: 'import_history', title: 'Zoho Import History', icon: 'fa-file-import', desc: 'History of data imports' },
             { id: 'unmapped_ledger', title: 'Unmapped Ledger Report', icon: 'fa-exclamation-circle', desc: 'Transactions without card mapping' }
         ];
@@ -484,6 +485,386 @@ window.Reports = {
             html += `</tbody></table></div>`;
             container.innerHTML = html;
         }
+        else if (id === 'payment_due_aging') {
+            this.dueAgingFilter = this.dueAgingFilter || 'all';
+
+            const pendingStmts = stmts.filter(s => s.payment_status !== 'Paid' && (s.closing_outstanding || 0) > 0);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            const items = [];
+            const buckets = {
+                overdue:  { label: 'Overdue Dues', icon: 'fa-exclamation-triangle', count: 0, amount: 0, gradient: 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)', shadow: 'rgba(239, 68, 68, 0.28)' },
+                today:    { label: 'Due Today', icon: 'fa-bell', count: 0, amount: 0, gradient: 'linear-gradient(135deg, #f43f5e 0%, #be123c 100%)', shadow: 'rgba(244, 63, 94, 0.28)' },
+                tomorrow: { label: 'Due Tomorrow', icon: 'fa-hourglass-half', count: 0, amount: 0, gradient: 'linear-gradient(135deg, #f97316 0%, #c2410c 100%)', shadow: 'rgba(249, 115, 22, 0.28)' },
+                days3:    { label: 'Due in 3 Days', icon: 'fa-calendar-day', count: 0, amount: 0, gradient: 'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)', shadow: 'rgba(245, 158, 11, 0.28)' },
+                days7:    { label: 'Due in 7 Days', icon: 'fa-calendar-week', count: 0, amount: 0, gradient: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)', shadow: 'rgba(59, 130, 246, 0.28)' },
+                days15:   { label: 'Due in 15 Days', icon: 'fa-calendar-alt', count: 0, amount: 0, gradient: 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)', shadow: 'rgba(139, 92, 246, 0.28)' },
+                later:    { label: 'Due Later (>15d)', icon: 'fa-clock', count: 0, amount: 0, gradient: 'linear-gradient(135deg, #64748b 0%, #334155 100%)', shadow: 'rgba(100, 116, 139, 0.28)' }
+            };
+
+            pendingStmts.forEach(s => {
+                const card = cards.find(c => String(c.card_id) === String(s.card_id));
+                let dueDate = null;
+                if (s.due_date) {
+                    dueDate = new Date(s.due_date);
+                } else if (card && card.due_date) {
+                    const sm = s.statement_month ? new Date(s.statement_month) : new Date();
+                    dueDate = new Date(sm.getFullYear(), sm.getMonth(), parseInt(card.due_date));
+                }
+
+                if (!dueDate || isNaN(dueDate.getTime())) return;
+                dueDate.setHours(0, 0, 0, 0);
+
+                const diffTime = dueDate.getTime() - today.getTime();
+                const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+                const amt = Number(s.closing_outstanding) || 0;
+                const minDue = Number(s.minimum_due) || 0;
+
+                let bucketKey = 'later';
+                let badgeStyle = '';
+                let urgencyText = '';
+
+                if (diffDays < 0) {
+                    bucketKey = 'overdue';
+                    badgeStyle = 'background:#b91c1c;color:#fff;';
+                    urgencyText = `Overdue (${Math.abs(diffDays)}d ago)`;
+                } else if (diffDays === 0) {
+                    bucketKey = 'today';
+                    badgeStyle = 'background:#ef476f;color:#fff;font-weight:700;';
+                    urgencyText = '🚨 Due Today';
+                } else if (diffDays === 1) {
+                    bucketKey = 'tomorrow';
+                    badgeStyle = 'background:#f3722c;color:#fff;';
+                    urgencyText = 'Due Tomorrow';
+                } else if (diffDays <= 3) {
+                    bucketKey = 'days3';
+                    badgeStyle = 'background:#f8961e;color:#fff;';
+                    urgencyText = `Due in ${diffDays} Days`;
+                } else if (diffDays <= 7) {
+                    bucketKey = 'days7';
+                    badgeStyle = 'background:#4361ee;color:#fff;';
+                    urgencyText = `Due in ${diffDays} Days`;
+                } else if (diffDays <= 15) {
+                    bucketKey = 'days15';
+                    badgeStyle = 'background:#7209b7;color:#fff;';
+                    urgencyText = `Due in ${diffDays} Days`;
+                } else {
+                    bucketKey = 'later';
+                    badgeStyle = 'background:#64748b;color:#fff;';
+                    urgencyText = `In ${diffDays} Days`;
+                }
+
+                buckets[bucketKey].count++;
+                buckets[bucketKey].amount += amt;
+
+                items.push({
+                    statement: s,
+                    card: card,
+                    cardholderName: card ? card.cardholder_name : 'Unknown Cardholder',
+                    bankName: card ? card.bank_name : (s.bank_name || '—'),
+                    cardLast4: card ? card.card_last4 : (s.card_last4 || '—'),
+                    cardType: card ? card.card_type : '—',
+                    statementMonth: s.statement_month ? window.Utils.formatMonthYear(s.statement_month) : '—',
+                    dueDate: dueDate,
+                    dueDateStr: window.Utils.formatDate(dueDate),
+                    diffDays: diffDays,
+                    bucketKey: bucketKey,
+                    badgeStyle: badgeStyle,
+                    urgencyText: urgencyText,
+                    amount: amt,
+                    minDue: minDue,
+                    status: s.payment_status || 'Unpaid'
+                });
+            });
+
+            // Sort: most urgent first (negative/low diffDays first)
+            items.sort((a, b) => a.diffDays - b.diffDays);
+
+            const totalPendingCount = items.length;
+            const totalPendingAmt = items.reduce((sum, it) => sum + it.amount, 0);
+
+            // Filter items based on active filter
+            let filteredItems = items;
+            if (this.dueAgingFilter && this.dueAgingFilter !== 'all') {
+                filteredItems = items.filter(it => it.bucketKey === this.dueAgingFilter);
+            }
+
+            // Top Urgency Stat Cards
+            html += `
+                <div class="mb-4">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                        <div>
+                            <div class="fw-bold fs-5 text-dark">Statement Payment Due Timeline &amp; Liquidity Schedule</div>
+                            <div class="text-muted small">Tracking ${totalPendingCount} pending statement settlements totaling <strong>${window.Utils.formatCurrency(totalPendingAmt)}</strong></div>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="badge" style="background:#0f172a;color:#fff;font-size:0.85rem;padding:6px 12px;border-radius:20px;">
+                                <i class="fas fa-wallet me-1"></i> Total Pending: ${window.Utils.formatCurrency(totalPendingAmt)}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 24px;">
+                        ${Object.keys(buckets).map(key => {
+                            const b = buckets[key];
+                            const isActive = this.dueAgingFilter === key;
+                            const activeStyle = isActive 
+                                ? 'transform: translateY(-3px); box-shadow: 0 0 0 3px #0f172a, 0 10px 24px ' + b.shadow + ';' 
+                                : 'box-shadow: 0 4px 14px ' + b.shadow + ';';
+                            return `
+                                <div onclick="window.Reports.setDueAgingFilter('${key}')"
+                                     style="background:${b.gradient};border-radius:14px;padding:15px 16px;color:#ffffff;cursor:pointer;transition:all 0.25s ease;position:relative;overflow:hidden;${activeStyle}"
+                                     onmouseover="this.style.transform='translateY(-4px)';this.style.boxShadow='0 12px 24px ${b.shadow}'" 
+                                     onmouseout="this.style.transform='${isActive ? 'translateY(-3px)' : 'translateY(0)'}';this.style.boxShadow='${isActive ? '0 0 0 3px #0f172a, 0 10px 24px ' + b.shadow : '0 4px 14px ' + b.shadow}'"
+                                     title="Click to filter schedule by ${b.label}">
+                                    
+                                    <!-- Background subtle icon watermark -->
+                                    <div style="position:absolute;right:-10px;bottom:-12px;font-size:3.5rem;opacity:0.14;pointer-events:none;color:#fff;">
+                                        <i class="fas ${b.icon}"></i>
+                                    </div>
+
+                                    <div class="d-flex justify-content-between align-items-center mb-2" style="position:relative;z-index:2;">
+                                        <span style="font-size:0.75rem;font-weight:700;letter-spacing:0.4px;text-transform:uppercase;color:rgba(255,255,255,0.92);">${b.label}</span>
+                                        <div style="width:26px;height:26px;border-radius:7px;background:rgba(255,255,255,0.22);display:flex;align-items:center;justify-content:center;">
+                                            <i class="fas ${b.icon}" style="font-size:0.75rem;"></i>
+                                        </div>
+                                    </div>
+
+                                    <div style="font-size:1.25rem;font-weight:800;letter-spacing:-0.4px;line-height:1.2;position:relative;z-index:2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                                        ${window.Utils.formatCurrency(b.amount)}
+                                    </div>
+
+                                    <div class="d-flex justify-content-between align-items-center mt-2 pt-1" style="position:relative;z-index:2;font-size:0.72rem;color:rgba(255,255,255,0.88);font-weight:600;border-top:1px solid rgba(255,255,255,0.18);">
+                                        <span>${b.count} statement${b.count === 1 ? '' : 's'}</span>
+                                        ${isActive ? '<span style="background:#fff;color:#0f172a;padding:1px 6px;border-radius:10px;font-size:0.62rem;font-weight:800;">ACTIVE</span>' : '<span style="font-size:0.68rem;opacity:0.75;"><i class="fas fa-filter"></i></span>'}
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+            `;
+
+            // Chart Container
+            html += `
+                <div class="card p-3 mb-4 border" style="background:#fff;border-radius:12px;">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="fw-bold small text-muted text-uppercase"><i class="fas fa-chart-bar me-1 text-primary"></i> Payment Due Aging Distribution (Amount vs Statement Volume)</div>
+                        <span class="badge bg-light text-dark border">Dual-Axis Schedule View</span>
+                    </div>
+                    <div style="height: 260px;">
+                        <canvas id="chart_due_aging"></canvas>
+                    </div>
+                </div>
+            `;
+
+            // Filter Navigation Pills
+            const filterPills = [
+                { key: 'all', label: 'All Dues', count: totalPendingCount },
+                { key: 'overdue', label: '🚨 Overdue', count: buckets.overdue.count },
+                { key: 'today', label: '🔴 Due Today', count: buckets.today.count },
+                { key: 'tomorrow', label: '🟠 Due Tomorrow', count: buckets.tomorrow.count },
+                { key: 'days3', label: '🟡 Due in 3 Days', count: buckets.days3.count },
+                { key: 'days7', label: '🔵 Due in 7 Days', count: buckets.days7.count },
+                { key: 'days15', label: '🟣 Due in 15 Days', count: buckets.days15.count },
+                { key: 'later', label: 'Due Later (>15d)', count: buckets.later.count }
+            ];
+
+            html += `
+                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+                    <div class="d-flex flex-wrap gap-1">
+                        ${filterPills.map(p => `
+                            <button class="btn btn-sm ${this.dueAgingFilter === p.key ? 'btn-primary' : 'btn-outline-secondary'}"
+                                    onclick="window.Reports.setDueAgingFilter('${p.key}')"
+                                    style="border-radius:20px;font-size:0.8rem;font-weight:600;padding:4px 12px;">
+                                ${p.label} <span class="badge ms-1 ${this.dueAgingFilter === p.key ? 'bg-light text-dark' : 'bg-secondary'}">${p.count}</span>
+                            </button>
+                        `).join('')}
+                    </div>
+                    <div class="small text-muted">Showing <strong>${filteredItems.length}</strong> of ${totalPendingCount} entries</div>
+                </div>
+            `;
+
+            // Data Table
+            html += `
+                <div class="card data-table-wrapper table-responsive border" style="border-radius:10px;">
+                    <table class="table data-table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Cardholder &amp; Bank</th>
+                                <th>Card Details</th>
+                                <th>Stmt Month</th>
+                                <th>Due Date</th>
+                                <th>Days Remaining</th>
+                                <th class="text-end">Minimum Due</th>
+                                <th class="text-end">Outstanding Due</th>
+                                <th class="text-center">Urgency</th>
+                                <th class="text-center">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+
+            filteredItems.forEach(it => {
+                html += `
+                    <tr>
+                        <td>
+                            <div class="fw-bold text-dark">${it.cardholderName}</div>
+                            <div class="small text-muted"><i class="fas fa-university me-1"></i>${it.bankName}</div>
+                        </td>
+                        <td>
+                            <div class="fw-semibold">${it.cardType}</div>
+                            <div class="small text-muted"><code>*${it.cardLast4}</code></div>
+                        </td>
+                        <td>${it.statementMonth}</td>
+                        <td class="fw-semibold">${it.dueDateStr}</td>
+                        <td>
+                            <span class="badge" style="${it.badgeStyle};font-size:0.75rem;padding:5px 9px;border-radius:6px;">
+                                ${it.urgencyText}
+                            </span>
+                        </td>
+                        <td class="text-end text-muted">${window.Utils.formatCurrency(it.minDue)}</td>
+                        <td class="text-end fw-bold text-danger fs-6">${window.Utils.formatCurrency(it.amount)}</td>
+                        <td class="text-center">
+                            <span class="badge ${it.status === 'Partially Paid' ? 'bg-info text-dark' : (it.bucketKey === 'overdue' ? 'bg-danger' : 'bg-warning text-dark')}">${it.status}</span>
+                        </td>
+                        <td class="text-center">
+                            <button class="btn btn-sm btn-outline-primary" onclick="window.App.navigate('payments')" title="Record payment for this statement" style="border-radius:6px;font-size:0.75rem;padding:3px 8px;">
+                                <i class="fas fa-credit-card me-1"></i> Pay
+                            </button>
+                        </td>
+                    </tr>
+                `;
+
+                this.exportData.push({
+                    'Cardholder Name': it.cardholderName,
+                    'Bank Name': it.bankName,
+                    'Card Type': it.cardType,
+                    'Card Last 4': it.cardLast4,
+                    'Statement Month': it.statementMonth,
+                    'Due Date': it.dueDateStr,
+                    'Days Remaining': it.diffDays,
+                    'Urgency Horizon': it.urgencyText.replace(/[🚨🔴🟠🟡🔵🟣]/g, '').trim(),
+                    'Minimum Due': it.minDue,
+                    'Outstanding Due': it.amount,
+                    'Payment Status': it.status
+                });
+            });
+
+            if (filteredItems.length === 0) {
+                html += `<tr><td colspan="9" class="text-center py-5 text-muted"><i class="fas fa-check-circle fa-2x text-success mb-2"></i><br>No statement dues found in this urgency bucket!</td></tr>`;
+            }
+
+            html += `</tbody></table></div>`;
+            container.innerHTML = html;
+
+            // Render Dual-Axis Aging Chart
+            const chartLabels = ['Overdue', 'Due Today', 'Due Tomorrow', 'In 3 Days', 'In 7 Days', 'In 15 Days', 'Later (>15d)'];
+            const chartAmounts = [
+                buckets.overdue.amount,
+                buckets.today.amount,
+                buckets.tomorrow.amount,
+                buckets.days3.amount,
+                buckets.days7.amount,
+                buckets.days15.amount,
+                buckets.later.amount
+            ];
+            const chartCounts = [
+                buckets.overdue.count,
+                buckets.today.count,
+                buckets.tomorrow.count,
+                buckets.days3.count,
+                buckets.days7.count,
+                buckets.days15.count,
+                buckets.later.count
+            ];
+
+            setTimeout(() => {
+                const canvas = document.getElementById('chart_due_aging');
+                if (!canvas) return;
+
+                if (window._chartInstances && window._chartInstances['chart_due_aging']) {
+                    window._chartInstances['chart_due_aging'].destroy();
+                }
+                if (!window._chartInstances) window._chartInstances = {};
+
+                window._chartInstances['chart_due_aging'] = new Chart(canvas, {
+                    type: 'bar',
+                    data: {
+                        labels: chartLabels,
+                        datasets: [
+                            {
+                                type: 'bar',
+                                label: 'Outstanding Due (₹)',
+                                data: chartAmounts,
+                                backgroundColor: [
+                                    'rgba(185, 28, 28, 0.85)',
+                                    'rgba(239, 71, 111, 0.85)',
+                                    'rgba(243, 114, 44, 0.85)',
+                                    'rgba(248, 150, 30, 0.85)',
+                                    'rgba(67, 97, 238, 0.85)',
+                                    'rgba(114, 9, 183, 0.85)',
+                                    'rgba(100, 116, 139, 0.85)'
+                                ],
+                                borderRadius: 6,
+                                yAxisID: 'y',
+                                order: 2
+                            },
+                            {
+                                type: 'line',
+                                label: 'Statement Count',
+                                data: chartCounts,
+                                borderColor: '#0f172a',
+                                backgroundColor: '#0f172a',
+                                pointBackgroundColor: '#0f172a',
+                                pointRadius: 5,
+                                borderWidth: 2.5,
+                                tension: 0.3,
+                                yAxisID: 'y1',
+                                order: 1
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        scales: {
+                            y: {
+                                type: 'linear',
+                                display: true,
+                                position: 'left',
+                                title: { display: true, text: 'Total Due (₹)', font: { weight: 'bold', size: 11 } },
+                                ticks: {
+                                    callback: function(v) { return window.Utils.formatCurrency(v); }
+                                }
+                            },
+                            y1: {
+                                type: 'linear',
+                                display: true,
+                                position: 'right',
+                                title: { display: true, text: 'Statements', font: { weight: 'bold', size: 11 } },
+                                grid: { drawOnChartArea: false },
+                                ticks: { stepSize: 1, precision: 0 }
+                            },
+                            x: { grid: { display: false } }
+                        },
+                        plugins: {
+                            legend: { position: 'top', labels: { boxWidth: 14, font: { weight: '600' } } },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(ctx) {
+                                        if (ctx.dataset.type === 'line') return ` Statement Count: ${ctx.raw}`;
+                                        return ` Amount Due: ${window.Utils.formatCurrency(ctx.raw)}`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }, 50);
+        }
         else {
             html += `<div class="alert alert-info">Report data rendering implemented via Excel export. Click 'Export to Excel' for full view.</div>`;
             this.exportData = [{ Info: "Detailed tabular data exported for " + id }];
@@ -768,6 +1149,16 @@ exportCurrentReport: function() {
     setSoleOwnerFilter: function(val) {
         this.soleOwnerFilter = val;
         this.loadReport('sole_owner', 'Credit Card Report – Sole Owner');
+    },
+
+    // ── PAYMENT DUE AGING HORIZON FILTER ───────────────────────
+    setDueAgingFilter: function(val) {
+        if (this.dueAgingFilter === val) {
+            this.dueAgingFilter = 'all';
+        } else {
+            this.dueAgingFilter = val;
+        }
+        this.loadReport('payment_due_aging', 'Payment Due Aging & Liquidity Schedule');
     },
 
     // ── ITEM 05: CARD-WISE DRILL-DOWN MODAL ────────────────────
@@ -1669,8 +2060,50 @@ exportCurrentReport: function() {
             'Total Deficiencies': h.total_missing
         }));
 
+        // 9. Payment Due Aging & Liquidity Schedule Tab
+        const pendingDues = stmts.filter(s => s.payment_status !== 'Paid' && (s.closing_outstanding || 0) > 0);
+        const todayExp = new Date(); todayExp.setHours(0, 0, 0, 0);
+        const dueAgingRows = pendingDues.map(s => {
+            const card = cards.find(c => String(c.card_id) === String(s.card_id));
+            let dueDate = s.due_date ? new Date(s.due_date) : null;
+            if (!dueDate || isNaN(dueDate.getTime())) {
+                if (card && card.due_date) {
+                    const sm = s.statement_month ? new Date(s.statement_month) : new Date();
+                    dueDate = new Date(sm.getFullYear(), sm.getMonth(), parseInt(card.due_date));
+                }
+            }
+            let diffDays = null;
+            let urgency = 'Undetermined';
+            if (dueDate && !isNaN(dueDate.getTime())) {
+                dueDate.setHours(0, 0, 0, 0);
+                diffDays = Math.round((dueDate.getTime() - todayExp.getTime()) / (1000 * 60 * 60 * 24));
+                if (diffDays < 0) urgency = `Overdue (${Math.abs(diffDays)}d ago)`;
+                else if (diffDays === 0) urgency = 'Due Today';
+                else if (diffDays === 1) urgency = 'Due Tomorrow';
+                else if (diffDays <= 3) urgency = `Due in ${diffDays} Days`;
+                else if (diffDays <= 7) urgency = `Due in ${diffDays} Days`;
+                else if (diffDays <= 15) urgency = `Due in ${diffDays} Days`;
+                else urgency = `Due Later (${diffDays} Days)`;
+            }
+            return {
+                'Cardholder Name': card ? card.cardholder_name : 'Unknown',
+                'Bank Name': card ? card.bank_name : '—',
+                'Card Type': card ? card.card_type : '—',
+                'Card Last 4': card ? card.card_last4 : (s.card_last4 || '—'),
+                'Statement Month': s.statement_month ? window.Utils.formatMonthYear(s.statement_month) : '—',
+                'Due Date': dueDate ? window.Utils.formatDate(dueDate) : '—',
+                'Days Remaining': diffDays !== null ? diffDays : 999,
+                'Urgency Horizon': urgency,
+                'Outstanding Due': Number(s.closing_outstanding) || 0,
+                'Minimum Due': Number(s.minimum_due) || 0,
+                'Payment Status': s.payment_status || 'Unpaid'
+            };
+        });
+        dueAgingRows.sort((a, b) => a['Days Remaining'] - b['Days Remaining']);
+
         return {
             kpi: { title: 'Executive Summary', id: 'kpi', data: kpiSheet },
+            dues: { title: 'Payment Due Aging', id: 'dues', data: dueAgingRows },
             recon: { title: 'Zoho vs Stmt Recon', id: 'recon', data: reconRows },
             limits: { title: 'Card Master & Limits', id: 'limits', data: limitRows },
             cardholders: { title: 'Cardholder Spend', id: 'cardholders', data: cardholderRows },
@@ -1890,6 +2323,7 @@ exportCurrentReport: function() {
         const slides = [
             { id: 'cover', title: 'Executive Title & Cover Slide', desc: 'Dark navy corporate title slide with audit metadata' },
             { id: 'kpis', title: 'Financial KPIs Dashboard Deck', desc: '4 large KPI stat boxes, utilization ratios & key takeaways' },
+            { id: 'dues', title: 'Payment Due Aging & Liquidity Schedule', desc: 'Upcoming statement dues categorized by urgency (Today, Tomorrow, 3d, 7d, 15d & Overdue)' },
             { id: 'recon', title: 'Zoho vs Statement Reconciliation Audit', desc: 'Debits vs statement dues, match rate & variance audit' },
             { id: 'banks', title: 'Bank Exposure & Active Card Lines', desc: 'Issuance by bank, limits and aggregate spending' },
             { id: 'cardholders', title: 'Cardholder Spend & Available Limits', desc: 'Primary & add-on breakdown, cushions and utilization' },
@@ -2066,6 +2500,80 @@ exportCurrentReport: function() {
                 ];
                 insights.forEach((ins, idx) => {
                     sKpi.addText(`•  ${ins}`, { x: 0.8, y: 3.65 + idx * 0.35, w: 8.4, h: 0.3, fontSize: 9.5, fontFace: 'Arial', color: '334155' });
+                });
+            }
+
+            // 2b. SLIDE: PAYMENT DUE AGING & LIQUIDITY SCHEDULE
+            if (checked.includes('dues')) {
+                const sDue = pptx.addSlide();
+                addSlideHeader(sDue, 'Payment Due Aging & Immediate Liquidity Schedule', 'Scheduled statement payment obligations categorized by urgency horizons (Today, Tomorrow, 3d, 7d, 15d & Overdue)');
+
+                const dueRows = datasets.dues.data || [];
+                const overdueDues = dueRows.filter(r => r['Days Remaining'] < 0);
+                const todayDues = dueRows.filter(r => r['Days Remaining'] === 0);
+                const tomDues = dueRows.filter(r => r['Days Remaining'] === 1);
+                const days3Dues = dueRows.filter(r => r['Days Remaining'] >= 2 && r['Days Remaining'] <= 3);
+                const days7Dues = dueRows.filter(r => r['Days Remaining'] >= 4 && r['Days Remaining'] <= 7);
+
+                const overdueAmt = overdueDues.reduce((s, r) => s + (r['Closing Outstanding Due'] || 0), 0);
+                const todayAmt = todayDues.reduce((s, r) => s + (r['Closing Outstanding Due'] || 0), 0);
+                const next3dAmt = tomDues.concat(days3Dues).reduce((s, r) => s + (r['Closing Outstanding Due'] || 0), 0);
+                const weekAmt = days7Dues.reduce((s, r) => s + (r['Closing Outstanding Due'] || 0), 0);
+
+                // 4 Urgency Metric Boxes
+                const dueKpis = [
+                    { title: 'OVERDUE DUES', val: window.Utils.formatCurrency(overdueAmt), sub: `${overdueDues.length} statements overdue`, bar: 'B91C1C', txt: 'B91C1C' },
+                    { title: 'DUE TODAY', val: window.Utils.formatCurrency(todayAmt), sub: `${todayDues.length} statements due today`, bar: 'EF476F', txt: 'EF476F' },
+                    { title: 'DUE IN 1-3 DAYS', val: window.Utils.formatCurrency(next3dAmt), sub: `${tomDues.length + days3Dues.length} statements upcoming`, bar: 'F8961E', txt: 'F8961E' },
+                    { title: 'DUE IN 4-7 DAYS', val: window.Utils.formatCurrency(weekAmt), sub: `${days7Dues.length} statements maturing`, bar: '4361EE', txt: '4361EE' }
+                ];
+
+                const kw = 2.05;
+                dueKpis.forEach((c, i) => {
+                    const kx = 0.6 + i * (kw + 0.2);
+                    sDue.addShape(pptx.shapes.RECTANGLE, { x: kx, y: 1.2, w: kw, h: 1.4, fill: { color: 'FFFFFF' }, line: { color: 'E2E8F0', width: 1 } });
+                    sDue.addShape(pptx.shapes.RECTANGLE, { x: kx, y: 1.2, w: kw, h: 0.08, fill: { color: c.bar } });
+                    sDue.addText(c.title, { x: kx + 0.15, y: 1.35, w: kw - 0.3, h: 0.22, fontSize: 8.5, fontFace: 'Arial', color: '64748B', bold: true });
+                    sDue.addText(c.val, { x: kx + 0.15, y: 1.6, w: kw - 0.3, h: 0.45, fontSize: 13, fontFace: 'Arial', bold: true, color: c.txt });
+                    sDue.addText(c.sub, { x: kx + 0.15, y: 2.15, w: kw - 0.3, h: 0.25, fontSize: 8, fontFace: 'Arial', color: '94A3B8' });
+                });
+
+                // Schedule Table of upcoming statement obligations
+                const dueTable = [
+                    [
+                        { text: 'Cardholder', options: { bold: true, fill: '0F172A', color: 'FFFFFF' } },
+                        { text: 'Bank', options: { bold: true, fill: '0F172A', color: 'FFFFFF' } },
+                        { text: 'Last 4', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'center' } },
+                        { text: 'Due Date', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'center' } },
+                        { text: 'Urgency Horizon', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'center' } },
+                        { text: 'Outstanding Due', options: { bold: true, fill: '0F172A', color: 'FFFFFF', align: 'right' } }
+                    ]
+                ];
+
+                dueRows.slice(0, 5).forEach(d => {
+                    const days = d['Days Remaining'];
+                    dueTable.push([
+                        { text: d['Cardholder Name'] },
+                        { text: d['Bank Name'] },
+                        { text: `*${d['Card Last 4']}`, options: { align: 'center' } },
+                        { text: String(d['Due Date']), options: { align: 'center' } },
+                        { text: d['Urgency Horizon'], options: { align: 'center', bold: true, color: days < 0 ? 'B91C1C' : (days === 0 ? 'EF476F' : '334155') } },
+                        { text: window.Utils.formatCurrency(d['Closing Outstanding Due']), options: { align: 'right', bold: true } }
+                    ]);
+                });
+
+                if (dueRows.length === 0) {
+                    dueTable.push([
+                        { text: 'No pending statement dues recorded. All clear!', options: { colspan: 6, align: 'center', italic: true, color: '059669' } }
+                    ]);
+                }
+
+                sDue.addTable(dueTable, {
+                    x: 0.6, y: 2.8, w: 8.8, h: 2.0,
+                    colW: [2.2, 1.6, 0.9, 1.3, 1.4, 1.4],
+                    fontSize: 9,
+                    fontFace: 'Arial',
+                    border: { pt: 0.5, color: 'CBD5E1' }
                 });
             }
 
