@@ -59,9 +59,12 @@ window.Transactions = {
                     <option value="Credit" ${this.filters.type === 'Credit' ? 'selected' : ''}>Credit</option>
                 </select>
             </div>
-            <div style="display: flex; flex-direction: column; flex: 1; min-width: 200px;">
-                <label class="form-label small text-muted mb-1">Search</label>
-                <input type="text" class="form-control" id="txnSearch" placeholder="Search description..." value="${this.filters.search}" oninput="window.Transactions.applyFilters()" style="width: 100%;">
+            <div style="display: flex; flex-direction: column; flex: 1.5; min-width: 250px;">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <label class="form-label small text-muted mb-0">Search / Amount Filter</label>
+                    <span class="text-muted" style="font-size: 0.72rem;">Supports: &gt;10000, &lt;5000, 5000-20000, &lt;&gt;10000</span>
+                </div>
+                <input type="text" class="form-control" id="txnSearch" placeholder="Search description, or &gt;10000, &lt;5000, &lt;&gt;10000..." value="${this.filters.search}" oninput="window.Transactions.applyFilters()" style="width: 100%;">
             </div>
         `;
 
@@ -86,7 +89,7 @@ window.Transactions = {
         this.filters.dateTo = document.getElementById('txnDateTo').value;
         this.filters.cardId = document.getElementById('txnCard').value;
         this.filters.type = document.getElementById('txnType').value;
-        this.filters.search = document.getElementById('txnSearch').value.toLowerCase();
+        this.filters.search = document.getElementById('txnSearch').value.trim();
         this.currentPage = 1;
         this.renderData();
     },
@@ -106,8 +109,7 @@ window.Transactions = {
         if (this.filters.cardId) txns = txns.filter(t => String(t.card_id) === String(this.filters.cardId));
         if (this.filters.type) txns = txns.filter(t => t.txn_type === this.filters.type);
         if (this.filters.search) txns = txns.filter(t => 
-            String(t.description || '').toLowerCase().includes(this.filters.search) || 
-            String(t.zoho_ledger || '').toLowerCase().includes(this.filters.search)
+            window.Utils.matchSearchOrAmount(t, this.filters.search)
         );
 
         // Sort descending by date

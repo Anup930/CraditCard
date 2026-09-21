@@ -20,7 +20,8 @@ var DB = {
         categories:     [],
         import_batches: [],
         users:          [],
-        audit_logs:     []
+        audit_logs:     [],
+        unbilled:       []
     },
 
     _isLoaded: false,
@@ -197,6 +198,15 @@ var DB = {
             p.statement_id = parseInt(p.statement_id) || null;
             p.amount       = Utils.parseNum(p.amount);
         });
+
+        this.data.unbilled = this.data.unbilled || [];
+        this.data.unbilled.forEach(u => {
+            u.unbilled_id = parseInt(u.unbilled_id) || 0;
+            u.card_id     = parseInt(u.card_id) || 0;
+            u.amount      = Utils.parseNum(u.amount);
+            u.statement_id = u.statement_id ? parseInt(u.statement_id) : null;
+            u.status      = u.status || 'Unbilled';
+        });
     },
 
     // ── CLOUD SYNCHRONIZATION ──────────────────────────────────
@@ -207,7 +217,7 @@ var DB = {
         this.notify('sync_start');
 
         try {
-            const [cards, txns, stmts, pmts, cats, batches, users, logs] = await Promise.all([
+            const [cards, txns, stmts, pmts, cats, batches, users, logs, unbilled] = await Promise.all([
                 this.apiGet({ action: 'getAll', sheet: 'credit_cards' }),
                 this.apiGet({ action: 'getAll', sheet: 'transactions' }),
                 this.apiGet({ action: 'getAll', sheet: 'statements' }),
@@ -215,7 +225,8 @@ var DB = {
                 this.apiGet({ action: 'getAll', sheet: 'categories' }),
                 this.apiGet({ action: 'getAll', sheet: 'import_batches' }),
                 this.apiGet({ action: 'getAll', sheet: 'users' }),
-                this.apiGet({ action: 'getAll', sheet: 'audit_logs' })
+                this.apiGet({ action: 'getAll', sheet: 'audit_logs' }),
+                this.apiGet({ action: 'getAll', sheet: 'unbilled' }).catch(() => ({ data: [] }))
             ]);
 
             this.data.credit_cards   = cards.data   || [];
@@ -226,6 +237,7 @@ var DB = {
             this.data.import_batches = batches.data || [];
             this.data.users          = users.data   || [];
             this.data.audit_logs     = logs.data    || [];
+            this.data.unbilled       = (unbilled && unbilled.data) || [];
 
             this._normalizeDataset();
 
@@ -476,11 +488,15 @@ var DB = {
             // Latest billed statement spend
             const billedSpend = latestStmt ? (latestStmt.payment_status === 'Paid' ? 0 : Utils.parseNum(latestStmt.closing_outstanding)) : 0;
 
-            // Unbilled spend: current transactions not yet appearing in any statement, or statement unbilled
+            // Unbilled spend: current unbilled records, statement unbilled, or unbilled txns
             const cTxns = DB.data.transactions.filter(t => String(t.card_id) === String(card.card_id));
             const totalSpend = cTxns.filter(t => t.txn_type === 'Debit').reduce((sum, t) => sum + Utils.parseNum(t.amount), 0);
 
-            let unbilledSpend = latestStmt ? Utils.parseNum(latestStmt.unbilled_amount) : 0;
+            const pendingUnbilled = (DB.data.unbilled || [])
+                .filter(u => String(u.card_id) === String(card.card_id) && (u.status || 'Unbilled') === 'Unbilled')
+                .reduce((sum, u) => sum + Utils.parseNum(u.amount), 0);
+
+            let unbilledSpend = pendingUnbilled > 0 ? pendingUnbilled : (latestStmt ? Utils.parseNum(latestStmt.unbilled_amount) : 0);
             if (unbilledSpend === 0 && cStmts.length === 0) {
                 // If no statements imported yet, all debit transactions are unbilled
                 unbilledSpend = totalSpend;
@@ -521,11 +537,7 @@ var DB = {
             if (filters.dateFrom) txns = txns.filter(t => t.txn_date >= filters.dateFrom);
             if (filters.dateTo)   txns = txns.filter(t => t.txn_date <= filters.dateTo);
             if (filters.search) {
-                const s = filters.search.toLowerCase().trim();
-                txns = txns.filter(t =>
-                    (t.description || '').toLowerCase().includes(s) ||
-                    (t.zoho_ledger || '').toLowerCase().includes(s)
-                );
+                txns = txns.filter(t => Utils.matchSearchOrAmount(t, filters.search));
             }
             return txns.sort((a, b) => (b.txn_date || '').localeCompare(a.txn_date || ''));
         },
@@ -743,6 +755,127 @@ var DB = {
         },
 
         getByCard(cardId) { return DB.data.payments.filter(p => String(p.card_id) === String(cardId)); }
+    },
+
+    // ── UNBILLED TRANSACTIONS MODULE ───────────────────────────
+
+    unbilled: {
+        getAll(filters = {}) {
+            let list = [...(DB.data.unbilled || [])];
+            if (filters.card_id) list = list.filter(u => String(u.card_id) === String(filters.card_id));
+            if (filters.status)  list = list.filter(u => (u.status || 'Unbilled') === filters.status);
+            if (filters.month)   list = list.filter(u => u.expected_statement_month === filters.month);
+            return list.sort((a, b) => (b.txn_date || '').localeCompare(a.txn_date || ''));
+        },
+
+        getPendingByCard(cardId) {
+            return (DB.data.unbilled || []).filter(u => 
+                String(u.card_id) === String(cardId) && (u.status || 'Unbilled') === 'Unbilled'
+            ).sort((a, b) => (a.txn_date || '').localeCompare(b.txn_date || ''));
+        },
+
+        async add(rec) {
+            rec.unbilled_id = DB.nextId('unbilled');
+            rec.card_id     = parseInt(rec.card_id) || 0;
+            rec.amount      = Utils.parseNum(rec.amount);
+            rec.status      = rec.status || 'Unbilled';
+            rec.statement_id = rec.statement_id ? parseInt(rec.statement_id) : null;
+            rec.created_at  = Utils.now();
+
+            if (!DB.data.unbilled) DB.data.unbilled = [];
+            DB.data.unbilled.unshift(rec);
+            await DB.saveToEncryptedStorage();
+            DB.notify('unbilled_added', { rec });
+
+            try {
+                await DB.apiPost({ action: 'add', sheet: 'unbilled', data: rec });
+                DB.logActivity('Unbilled', 'Add', `Added unbilled txn of ${rec.amount} for card ${rec.card_id}`);
+                return rec.unbilled_id;
+            } catch(err) {
+                console.error('[DB] Unbilled save failed on cloud:', err);
+                return rec.unbilled_id;
+            }
+        },
+
+        async addBatch(records) {
+            if (!Array.isArray(records) || records.length === 0) return 0;
+            if (!DB.data.unbilled) DB.data.unbilled = [];
+            const startId = DB.nextId('unbilled');
+            const prepared = records.map((r, i) => {
+                r.unbilled_id = r.unbilled_id ? parseInt(r.unbilled_id) : (startId + i);
+                r.card_id     = parseInt(r.card_id) || 0;
+                r.amount      = Utils.parseNum(r.amount);
+                r.status      = r.status || 'Unbilled';
+                r.statement_id = r.statement_id ? parseInt(r.statement_id) : null;
+                r.created_at  = r.created_at || Utils.now();
+                return r;
+            });
+
+            DB.data.unbilled.unshift(...prepared);
+            await DB.saveToEncryptedStorage();
+            DB.notify('unbilled_batch_added', { count: prepared.length });
+
+            try {
+                await DB.apiPost({ action: 'addBatch', sheet: 'unbilled', records: prepared });
+                DB.logActivity('Unbilled', 'Batch Import', `Imported ${prepared.length} unbilled records`);
+                return prepared.length;
+            } catch(err) {
+                console.error('[DB] Cloud unbilled batch failed:', err);
+                return prepared.length;
+            }
+        },
+
+        async update(id, data) {
+            if (!DB.data.unbilled) return false;
+            const idx = DB.data.unbilled.findIndex(u => String(u.unbilled_id) === String(id));
+            if (idx === -1) return false;
+            Object.assign(DB.data.unbilled[idx], data);
+            await DB.saveToEncryptedStorage();
+            DB.notify('unbilled_updated', { id, data });
+            try {
+                await DB.apiPost({ action: 'update', sheet: 'unbilled', id: id, data: data });
+                return true;
+            } catch(err) {
+                console.error('[DB] Cloud unbilled update failed:', err);
+                return false;
+            }
+        },
+
+        async updateBatch(records) {
+            if (!Array.isArray(records) || records.length === 0) return false;
+            if (!DB.data.unbilled) return false;
+            records.forEach(r => {
+                const idx = DB.data.unbilled.findIndex(u => String(u.unbilled_id) === String(r.unbilled_id));
+                if (idx !== -1) {
+                    Object.assign(DB.data.unbilled[idx], r);
+                }
+            });
+            await DB.saveToEncryptedStorage();
+            DB.notify('unbilled_updated', { count: records.length });
+            try {
+                await DB.apiPost({ action: 'updateBatch', sheet: 'unbilled', records: records });
+                DB.logActivity('Unbilled', 'Batch Update', `Updated ${records.length} unbilled records`);
+                return true;
+            } catch(err) {
+                console.error('[DB] Cloud unbilled batch update failed:', err);
+                return false;
+            }
+        },
+
+        async delete(id) {
+            if (!DB.data.unbilled) return false;
+            DB.data.unbilled = DB.data.unbilled.filter(u => String(u.unbilled_id) !== String(id));
+            await DB.saveToEncryptedStorage();
+            DB.notify('unbilled_deleted', { id });
+            try {
+                await DB.apiPost({ action: 'delete', sheet: 'unbilled', id: id });
+                DB.logActivity('Unbilled', 'Delete', `Deleted unbilled ID ${id}`);
+                return true;
+            } catch(err) {
+                console.error('[DB] Cloud unbilled delete failed:', err);
+                return false;
+            }
+        }
     },
 
     // ── CATEGORIES MODULE ──────────────────────────────────────

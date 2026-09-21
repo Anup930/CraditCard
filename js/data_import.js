@@ -19,6 +19,9 @@ window.DataImport = {
         } else if (type === 'payments') {
             title = 'Import Payments';
             templateCols = 'Card Zoho Ledger Name, Statement Month (YYYY-MM), Payment Date (YYYY-MM-DD), Amount, Payment Mode, Reference No, Status';
+        } else if (type === 'unbilled') {
+            title = 'Import Unbilled Transactions';
+            templateCols = 'Card Zoho Ledger Name, Date (YYYY-MM-DD), Description, Amount, Expected Statement Month (YYYY-MM)';
         }
 
         const html = `
@@ -77,6 +80,12 @@ window.DataImport = {
             const data = [
                 ["Card Zoho Ledger Name", "Statement Month (YYYY-MM)", "Payment Date (YYYY-MM-DD)", "Amount", "Payment Mode", "Reference No", "Status"],
                 ["Arvind HDFC CC", "2026-04", "2026-05-12", 84336.55, "NEFT", "REF12345", "Completed"]
+            ];
+            ws = XLSX.utils.aoa_to_sheet(data);
+        } else if (this.currentType === 'unbilled') {
+            const data = [
+                ["Card Zoho Ledger Name", "Date (YYYY-MM-DD)", "Description", "Amount", "Expected Statement Month (YYYY-MM)"],
+                ["Arvind HDFC CC", "2026-08-25", "Cloud Server Hosting", 3500.00, "2026-09"]
             ];
             ws = XLSX.utils.aoa_to_sheet(data);
         }
@@ -193,6 +202,12 @@ window.DataImport = {
                             status = 'Duplicate'; reason = 'Payment already exists';
                         }
                     }
+                } else if (this.currentType === 'unbilled') {
+                    const date = row["Date (YYYY-MM-DD)"] || row["Date"] || row["Txn Date"];
+                    const amount = row["Amount"];
+                    if (!date || amount === "" || amount === undefined) {
+                        status = 'Error'; reason = 'Missing Date or Amount';
+                    }
                 }
             }
 
@@ -246,6 +261,14 @@ window.DataImport = {
                         }
                     }
                     record.statement_id = resolvedStatementId;
+                } else if (this.currentType === 'unbilled') {
+                    let dStr = row["Date (YYYY-MM-DD)"] || row["Date"] || row["Txn Date"];
+                    record.txn_date = String(dStr);
+                    record.description = row["Description"] || "";
+                    record.amount = window.Utils.parseNum(row["Amount"]);
+                    record.expected_statement_month = row["Expected Statement Month (YYYY-MM)"] || row["Expected Month"] || row["Month"] || "";
+                    record.status = "Unbilled";
+                    record.statement_id = null;
                 }
                 this.validRecords.push(record);
             } else if (status === 'Duplicate') {
@@ -301,6 +324,9 @@ window.DataImport = {
                     await window.DB.payments.add(record);
                     successCount++;
                 }
+            } else if (this.currentType === 'unbilled') {
+                await window.DB.unbilled.addBatch(this.validRecords);
+                successCount = this.validRecords.length;
             }
             
             if (window.App && window.App.showToast) {
@@ -312,7 +338,7 @@ window.DataImport = {
             window.App.closeModal();
 
             // Refresh current view
-            if ((this.currentType === 'statements' || this.currentType === 'payments') && window.Payments) {
+            if ((this.currentType === 'statements' || this.currentType === 'payments' || this.currentType === 'unbilled') && window.Payments) {
                 window.Payments.render(document.getElementById('main-content'));
             } else if (this.currentType === 'transactions' && window.Transactions) {
                 window.Transactions.render(document.getElementById('main-content'));

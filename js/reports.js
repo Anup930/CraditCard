@@ -40,6 +40,8 @@ window.Reports = {
     getReportCardsHtml: function() {
         const reports = [
             { id: 'reconciliation', title: 'Zoho vs Statement Reconciliation', icon: 'fa-exchange-alt', desc: 'Match Zoho entries against statement imports (Matched / Unmatched)' },
+            { id: 'unbilled_report', title: 'Unbilled Transactions Report', icon: 'fa-receipt', desc: 'Detailed tracking of pending vs billed unbilled card spends' },
+            { id: 'expense_description', title: 'Expense Description & Type Breakdown', icon: 'fa-chart-pie', desc: 'Deep-dive analysis of spends grouped by expense description & merchant' },
             { id: 'sole_owner', title: 'Credit Card Report – Sole Owner', icon: 'fa-user', desc: 'Complete card position grouped by owner' },
             { id: 'kpi_report', title: 'Dashboard KPI Report', icon: 'fa-tachometer-alt', desc: 'Export dashboard metrics' },
             { id: 'limit_used', title: 'Total Limit vs Used Limit', icon: 'fa-balance-scale', desc: 'Limit utilization per card' },
@@ -110,6 +112,14 @@ window.Reports = {
 
         if(id === 'reconciliation') {
             this.renderReconciliation(container);
+            return;
+        }
+        else if(id === 'unbilled_report') {
+            this.renderUnbilledReport(container);
+            return;
+        }
+        else if(id === 'expense_description') {
+            this.renderExpenseDescriptionReport(container);
             return;
         }
         else if(id === 'sole_owner') {
@@ -1541,6 +1551,527 @@ exportCurrentReport: function() {
         }
     },
 
+    // ── UNBILLED TRANSACTIONS REPORT ───────────────────────────
+    unbilledRepCardFilter: 'all',
+    unbilledRepStatusFilter: 'all',
+    unbilledRepMonthFilter: 'all',
+
+    renderUnbilledReport: function(container) {
+        const allCards = window.DB.cards.getAll() || [];
+        const unbilledRecords = window.DB.unbilled.getAll() || [];
+
+        let filtered = unbilledRecords;
+        if (this.unbilledRepCardFilter !== 'all') {
+            filtered = filtered.filter(u => String(u.card_id) === String(this.unbilledRepCardFilter));
+        }
+        if (this.unbilledRepStatusFilter !== 'all') {
+            filtered = filtered.filter(u => (u.status || 'Unbilled') === this.unbilledRepStatusFilter);
+        }
+        if (this.unbilledRepMonthFilter !== 'all') {
+            filtered = filtered.filter(u => u.expected_statement_month === this.unbilledRepMonthFilter);
+        }
+
+        const totalPending = filtered.filter(u => (u.status || 'Unbilled') === 'Unbilled')
+            .reduce((s, u) => s + (window.Utils.parseNum(u.amount) || 0), 0);
+        const totalBilled = filtered.filter(u => u.status === 'Billed')
+            .reduce((s, u) => s + (window.Utils.parseNum(u.amount) || 0), 0);
+        const totalAmt = totalPending + totalBilled;
+        const avgTicket = filtered.length > 0 ? (totalAmt / filtered.length) : 0;
+
+        const months = [...new Set(unbilledRecords.map(u => u.expected_statement_month).filter(Boolean))].sort();
+
+        // Prepare exportData
+        this.exportData = filtered.map(u => {
+            const c = allCards.find(x => String(x.card_id) === String(u.card_id));
+            return {
+                Date: u.txn_date,
+                Card: c ? `${c.cardholder_name} (*${c.card_last4})` : 'Unknown',
+                Bank: c ? c.bank_name : '',
+                Description: u.description || '',
+                'Expected Month': u.expected_statement_month || '',
+                Amount: u.amount,
+                Status: u.status || 'Unbilled',
+                'Statement ID': u.statement_id || ''
+            };
+        });
+
+        // Group by card for chart
+        const cardSpendMap = {};
+        filtered.forEach(u => {
+            const c = allCards.find(x => String(x.card_id) === String(u.card_id));
+            const name = c ? `${c.cardholder_name} (*${c.card_last4})` : 'Unknown';
+            cardSpendMap[name] = (cardSpendMap[name] || 0) + (window.Utils.parseNum(u.amount) || 0);
+        });
+        const cardLabels = Object.keys(cardSpendMap).slice(0, 8);
+        const cardValues = cardLabels.map(k => cardSpendMap[k]);
+
+        let html = `
+            <!-- Top Stats KPI Row -->
+            <!-- 4-Column KPI Stat Cards Grid -->
+            <div class="recon-kpi-grid">
+                <!-- Card 1: Pending Unbilled -->
+                <div class="recon-kpi-card orange">
+                    <div class="recon-kpi-header">
+                        <span class="recon-kpi-title">Pending Unbilled</span>
+                        <div class="recon-kpi-icon-wrap"><i class="fas fa-clock"></i></div>
+                    </div>
+                    <div>
+                        <div class="recon-kpi-value">${window.Utils.formatCurrency(totalPending)}</div>
+                        <div class="recon-kpi-sub"><i class="fas fa-hourglass-half me-1"></i>${filtered.filter(u => (u.status || 'Unbilled') === 'Unbilled').length} pending swipes</div>
+                    </div>
+                </div>
+
+                <!-- Card 2: Closed / Billed -->
+                <div class="recon-kpi-card green">
+                    <div class="recon-kpi-header">
+                        <span class="recon-kpi-title">Closed / Billed</span>
+                        <div class="recon-kpi-icon-wrap"><i class="fas fa-check-circle"></i></div>
+                    </div>
+                    <div>
+                        <div class="recon-kpi-value">${window.Utils.formatCurrency(totalBilled)}</div>
+                        <div class="recon-kpi-sub"><i class="fas fa-file-invoice me-1"></i>${filtered.filter(u => u.status === 'Billed').length} reconciled into statements</div>
+                    </div>
+                </div>
+
+                <!-- Card 3: Total Tracked -->
+                <div class="recon-kpi-card blue">
+                    <div class="recon-kpi-header">
+                        <span class="recon-kpi-title">Total Tracked</span>
+                        <div class="recon-kpi-icon-wrap"><i class="fas fa-receipt"></i></div>
+                    </div>
+                    <div>
+                        <div class="recon-kpi-value">${window.Utils.formatCurrency(totalAmt)}</div>
+                        <div class="recon-kpi-sub"><i class="fas fa-database me-1"></i>${filtered.length} total entries</div>
+                    </div>
+                </div>
+
+                <!-- Card 4: Avg Ticket Size -->
+                <div class="recon-kpi-card purple">
+                    <div class="recon-kpi-header">
+                        <span class="recon-kpi-title">Avg Ticket Size</span>
+                        <div class="recon-kpi-icon-wrap"><i class="fas fa-chart-line"></i></div>
+                    </div>
+                    <div>
+                        <div class="recon-kpi-value">${window.Utils.formatCurrency(avgTicket)}</div>
+                        <div class="recon-kpi-sub"><i class="fas fa-credit-card me-1"></i>Average per swipe</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chart Row (side-by-side using dashboard-grid) -->
+            <div class="dashboard-grid" style="margin-bottom: 22px;">
+                <div class="chart-container" style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:20px;box-shadow:0 2px 10px rgba(0,0,0,0.03);">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                        <h4 style="font-size:0.92rem;font-weight:700;color:#1e293b;margin:0;">
+                            <i class="fas fa-chart-bar text-primary me-2"></i>Unbilled Spend by Card
+                        </h4>
+                        <span style="font-size:0.75rem;color:#64748b;font-weight:600;background:#f8fafc;padding:3px 8px;border-radius:6px;border:1px solid #e2e8f0;">Card Volume</span>
+                    </div>
+                    <div style="height: 250px;"><canvas id="chart_unbilled_cards"></canvas></div>
+                </div>
+                <div class="chart-container" style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:20px;box-shadow:0 2px 10px rgba(0,0,0,0.03);">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                        <h4 style="font-size:0.92rem;font-weight:700;color:#1e293b;margin:0;">
+                            <i class="fas fa-chart-pie text-success me-2"></i>Status Distribution
+                        </h4>
+                        <span style="font-size:0.75rem;color:#64748b;font-weight:600;background:#f8fafc;padding:3px 8px;border-radius:6px;border:1px solid #e2e8f0;">Lifecycle</span>
+                    </div>
+                    <div style="height: 250px;"><canvas id="chart_unbilled_status"></canvas></div>
+                </div>
+            </div>
+
+            <!-- Filter Toolbar -->
+            <div class="table-toolbar" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:18px;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                    <span style="font-size:0.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">
+                        <i class="fas fa-filter text-primary me-1"></i> Filter By:
+                    </span>
+                    <select class="form-select form-select-sm" style="width: auto; padding:6px 12px; border-radius:8px; border:1px solid #cbd5e1; font-weight:600; color:#334155;" onchange="window.Reports.unbilledRepCardFilter=this.value; window.Reports.renderUnbilledReport(document.getElementById('rc-data'))">
+                        <option value="all">All Cards</option>
+                        ${allCards.map(c => `<option value="${c.card_id}" ${String(this.unbilledRepCardFilter) === String(c.card_id) ? 'selected' : ''}>${c.cardholder_name} (*${c.card_last4})</option>`).join('')}
+                    </select>
+                    <select class="form-select form-select-sm" style="width: auto; padding:6px 12px; border-radius:8px; border:1px solid #cbd5e1; font-weight:600; color:#334155;" onchange="window.Reports.unbilledRepStatusFilter=this.value; window.Reports.renderUnbilledReport(document.getElementById('rc-data'))">
+                        <option value="all" ${this.unbilledRepStatusFilter === 'all' ? 'selected' : ''}>All Status</option>
+                        <option value="Unbilled" ${this.unbilledRepStatusFilter === 'Unbilled' ? 'selected' : ''}>Pending (Unbilled)</option>
+                        <option value="Billed" ${this.unbilledRepStatusFilter === 'Billed' ? 'selected' : ''}>Closed (Billed)</option>
+                    </select>
+                    <select class="form-select form-select-sm" style="width: auto; padding:6px 12px; border-radius:8px; border:1px solid #cbd5e1; font-weight:600; color:#334155;" onchange="window.Reports.unbilledRepMonthFilter=this.value; window.Reports.renderUnbilledReport(document.getElementById('rc-data'))">
+                        <option value="all">All Expected Months</option>
+                        ${months.map(m => `<option value="${m}" ${this.unbilledRepMonthFilter === m ? 'selected' : ''}>${m}</option>`).join('')}
+                    </select>
+                    ${(this.unbilledRepCardFilter !== 'all' || this.unbilledRepStatusFilter !== 'all' || this.unbilledRepMonthFilter !== 'all') ? `
+                    <button class="btn btn-sm btn-outline" style="border-radius:8px;padding:6px 12px;background:#f8fafc;border:1px solid #cbd5e1;" onclick="window.Reports.unbilledRepCardFilter='all'; window.Reports.unbilledRepStatusFilter='all'; window.Reports.unbilledRepMonthFilter='all'; window.Reports.renderUnbilledReport(document.getElementById('rc-data'))" title="Reset Filters"><i class="fas fa-undo me-1"></i>Reset</button>` : ''}
+                </div>
+                <span class="badge" style="background:#f1f5f9;color:#475569;font-weight:600;font-size:0.8rem;padding:6px 12px;border-radius:20px;border:1px solid #e2e8f0;">Showing ${filtered.length} of ${unbilledRecords.length} records</span>
+            </div>
+
+            <!-- Detailed Table -->
+            <div class="card data-table-wrapper table-responsive shadow-sm" style="border-radius:12px;">
+                <table class="table data-table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Date</th>
+                            <th>Cardholder & Card</th>
+                            <th>Bank</th>
+                            <th>Description</th>
+                            <th>Expected Month</th>
+                            <th class="text-right">Amount</th>
+                            <th>Status</th>
+                            <th>Linked Statement</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+
+        if (filtered.length === 0) {
+            html += `<tr><td colspan="8" class="text-center py-5 text-muted"><i class="fas fa-receipt fa-2x mb-2 text-secondary d-block"></i>No unbilled transactions found matching current filters.</td></tr>`;
+        } else {
+            filtered.forEach(u => {
+                const c = allCards.find(x => String(x.card_id) === String(u.card_id));
+                const isBilled = u.status === 'Billed';
+                const statusBadge = isBilled ? '<span class="badge bg-success">Billed</span>' : '<span class="badge bg-warning text-dark">Unbilled</span>';
+                const stmtLink = u.statement_id ? `<a href="javascript:void(0)" onclick="window.Payments.viewStatement('${u.statement_id}')" class="text-primary fw-bold">Stmt #${u.statement_id}</a>` : '<span class="text-muted">-</span>';
+
+                html += `
+                    <tr>
+                        <td>${window.Utils.formatDate(u.txn_date)}</td>
+                        <td><strong>${c ? c.cardholder_name : 'Unknown'}</strong> <small class="text-muted">(*${c ? c.card_last4 : ''})</small></td>
+                        <td>${c ? c.bank_name : '-'}</td>
+                        <td>${u.description || '-'}</td>
+                        <td><code>${u.expected_statement_month || '-'}</code></td>
+                        <td class="text-right fw-bold">${window.Utils.formatCurrency(u.amount)}</td>
+                        <td>${statusBadge}</td>
+                        <td>${stmtLink}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        html += `</tbody></table></div>`;
+        container.innerHTML = html;
+
+        setTimeout(() => {
+            if (cardLabels.length > 0) {
+                this.renderChart('chart_unbilled_cards', 'bar', cardLabels, cardValues, 'Unbilled Amount (₹)', ['#ea580c', '#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#06b6d4', '#ec4899', '#64748b']);
+            }
+            this.renderChart('chart_unbilled_status', 'doughnut', ['Pending (Unbilled)', 'Closed (Billed)'], [totalPending, totalBilled], 'Status Amount', ['#ea580c', '#16a34a']);
+        }, 50);
+    },
+
+    // ── EXPENSE TYPE & DESCRIPTION BREAKDOWN REPORT ────────────
+    expDescCardFilter: 'all',
+    expDescTypeFilter: 'Debit',
+    expDescSort: 'spend_desc',
+    expDescSearch: '',
+
+    renderExpenseDescriptionReport: function(container) {
+        const cards = window.DB.cards.getAll() || [];
+        let txns = window.DB.transactions.getAll() || [];
+
+        if (this.expDescCardFilter !== 'all') {
+            txns = txns.filter(t => String(t.card_id) === String(this.expDescCardFilter));
+        }
+        if (this.expDescTypeFilter !== 'all') {
+            txns = txns.filter(t => t.txn_type === this.expDescTypeFilter);
+        }
+        if (this.expDescSearch) {
+            const q = this.expDescSearch.toLowerCase();
+            txns = txns.filter(t => String(t.description || '').toLowerCase().includes(q));
+        }
+
+        const groupMap = {};
+        let totalSpend = 0;
+        let totalTxnCount = 0;
+
+        txns.forEach(t => {
+            const desc = (t.description || 'Uncategorized / General').trim();
+            const amt = window.Utils.parseNum(t.amount);
+            if (!groupMap[desc]) {
+                groupMap[desc] = {
+                    description: desc,
+                    count: 0,
+                    totalDebits: 0,
+                    totalCredits: 0,
+                    netSpend: 0,
+                    maxAmount: 0,
+                    amounts: []
+                };
+            }
+            groupMap[desc].count++;
+            totalTxnCount++;
+            if (t.txn_type === 'Debit') {
+                groupMap[desc].totalDebits += amt;
+                totalSpend += amt;
+            } else {
+                groupMap[desc].totalCredits += amt;
+            }
+            groupMap[desc].netSpend = groupMap[desc].totalDebits - groupMap[desc].totalCredits;
+            if (amt > groupMap[desc].maxAmount) groupMap[desc].maxAmount = amt;
+            groupMap[desc].amounts.push(amt);
+        });
+
+        let groups = Object.values(groupMap);
+
+        if (this.expDescSort === 'spend_desc') {
+            groups.sort((a, b) => b.totalDebits - a.totalDebits);
+        } else if (this.expDescSort === 'count_desc') {
+            groups.sort((a, b) => b.count - a.count);
+        } else if (this.expDescSort === 'name_asc') {
+            groups.sort((a, b) => a.description.localeCompare(b.description));
+        }
+
+        const distinctTypesCount = groups.length;
+        const topExpense = groups[0] || { description: 'None', totalDebits: 0 };
+        const avgTicketOverall = totalTxnCount > 0 ? (totalSpend / totalTxnCount) : 0;
+
+        this.exportData = groups.map((g, idx) => ({
+            Rank: idx + 1,
+            'Expense Description': g.description,
+            'Transaction Count': g.count,
+            'Total Spend (Debits)': g.totalDebits,
+            'Total Credits / Refunds': g.totalCredits,
+            'Net Spend': g.netSpend,
+            'Spend %': totalSpend > 0 ? ((g.totalDebits / totalSpend) * 100).toFixed(2) + '%' : '0%',
+            'Avg Ticket': (g.totalDebits / (g.count || 1)),
+            'Max Transaction': g.maxAmount
+        }));
+
+        const top8 = groups.slice(0, 8);
+        const chartLabels = top8.map(g => g.description.length > 20 ? g.description.slice(0, 20) + '...' : g.description);
+        const chartValues = top8.map(g => g.totalDebits);
+
+        let html = `
+            <!-- Top Stats KPI Row -->
+            <!-- 4-Column KPI Stat Cards Grid -->
+            <div class="recon-kpi-grid">
+                <!-- Card 1: Total Expense Spend -->
+                <div class="recon-kpi-card red">
+                    <div class="recon-kpi-header">
+                        <span class="recon-kpi-title">Total Expense Spend</span>
+                        <div class="recon-kpi-icon-wrap"><i class="fas fa-wallet"></i></div>
+                    </div>
+                    <div>
+                        <div class="recon-kpi-value">${window.Utils.formatCurrency(totalSpend)}</div>
+                        <div class="recon-kpi-sub"><i class="fas fa-receipt me-1"></i>${totalTxnCount} transactions analyzed</div>
+                    </div>
+                </div>
+
+                <!-- Card 2: Distinct Expense Types -->
+                <div class="recon-kpi-card purple">
+                    <div class="recon-kpi-header">
+                        <span class="recon-kpi-title">Distinct Expense Types</span>
+                        <div class="recon-kpi-icon-wrap"><i class="fas fa-tags"></i></div>
+                    </div>
+                    <div>
+                        <div class="recon-kpi-value">${distinctTypesCount}</div>
+                        <div class="recon-kpi-sub"><i class="fas fa-layer-group me-1"></i>Unique description categories</div>
+                    </div>
+                </div>
+
+                <!-- Card 3: Top Spend Category -->
+                <div class="recon-kpi-card orange">
+                    <div class="recon-kpi-header">
+                        <span class="recon-kpi-title">Top Spend Category</span>
+                        <div class="recon-kpi-icon-wrap"><i class="fas fa-crown"></i></div>
+                    </div>
+                    <div>
+                        <div class="recon-kpi-value" style="font-size:1.25rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${topExpense.description}">
+                            ${topExpense.description}
+                        </div>
+                        <div class="recon-kpi-sub"><i class="fas fa-chart-pie me-1"></i>${window.Utils.formatCurrency(topExpense.totalDebits)} (${totalSpend > 0 ? ((topExpense.totalDebits/totalSpend)*100).toFixed(1) : 0}%)</div>
+                    </div>
+                </div>
+
+                <!-- Card 4: Average Ticket Size -->
+                <div class="recon-kpi-card cyan">
+                    <div class="recon-kpi-header">
+                        <span class="recon-kpi-title">Average Ticket Size</span>
+                        <div class="recon-kpi-icon-wrap"><i class="fas fa-calculator"></i></div>
+                    </div>
+                    <div>
+                        <div class="recon-kpi-value">${window.Utils.formatCurrency(avgTicketOverall)}</div>
+                        <div class="recon-kpi-sub"><i class="fas fa-arrow-trend-up me-1"></i>Across all expense types</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chart Row (side-by-side using dashboard-grid) -->
+            <div class="dashboard-grid" style="margin-bottom: 22px;">
+                <div class="chart-container" style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:20px;box-shadow:0 2px 10px rgba(0,0,0,0.03);">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                        <h4 style="font-size:0.92rem;font-weight:700;color:#1e293b;margin:0;">
+                            <i class="fas fa-chart-bar text-primary me-2"></i>Top 8 Expense Types by Total Spend
+                        </h4>
+                        <span style="font-size:0.75rem;color:#64748b;font-weight:600;background:#f8fafc;padding:3px 8px;border-radius:6px;border:1px solid #e2e8f0;">Debit Volume</span>
+                    </div>
+                    <div style="height: 260px;"><canvas id="chart_exp_desc_bar"></canvas></div>
+                </div>
+                <div class="chart-container" style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:20px;box-shadow:0 2px 10px rgba(0,0,0,0.03);">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                        <h4 style="font-size:0.92rem;font-weight:700;color:#1e293b;margin:0;">
+                            <i class="fas fa-chart-pie text-secondary me-2"></i>Spend Distribution
+                        </h4>
+                        <span style="font-size:0.75rem;color:#64748b;font-weight:600;background:#f8fafc;padding:3px 8px;border-radius:6px;border:1px solid #e2e8f0;">Category Share</span>
+                    </div>
+                    <div style="height: 260px;"><canvas id="chart_exp_desc_pie"></canvas></div>
+                </div>
+            </div>
+
+            <!-- Filter Toolbar -->
+            <div class="table-toolbar" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:18px;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                    <span style="font-size:0.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">
+                        <i class="fas fa-filter text-primary me-1"></i> Filter Expense:
+                    </span>
+                    <select class="form-select form-select-sm" style="width: auto; padding:6px 12px; border-radius:8px; border:1px solid #cbd5e1; font-weight:600; color:#334155;" onchange="window.Reports.expDescCardFilter=this.value; window.Reports.renderExpenseDescriptionReport(document.getElementById('rc-data'))">
+                        <option value="all">All Cards</option>
+                        ${cards.map(c => `<option value="${c.card_id}" ${String(this.expDescCardFilter) === String(c.card_id) ? 'selected' : ''}>${c.cardholder_name} (*${c.card_last4})</option>`).join('')}
+                    </select>
+                    <select class="form-select form-select-sm" style="width: auto; padding:6px 12px; border-radius:8px; border:1px solid #cbd5e1; font-weight:600; color:#334155;" onchange="window.Reports.expDescTypeFilter=this.value; window.Reports.renderExpenseDescriptionReport(document.getElementById('rc-data'))">
+                        <option value="Debit" ${this.expDescTypeFilter === 'Debit' ? 'selected' : ''}>Debits Only (Spends)</option>
+                        <option value="all" ${this.expDescTypeFilter === 'all' ? 'selected' : ''}>All Types</option>
+                        <option value="Credit" ${this.expDescTypeFilter === 'Credit' ? 'selected' : ''}>Credits Only</option>
+                    </select>
+                    <select class="form-select form-select-sm" style="width: auto; padding:6px 12px; border-radius:8px; border:1px solid #cbd5e1; font-weight:600; color:#334155;" onchange="window.Reports.expDescSort=this.value; window.Reports.renderExpenseDescriptionReport(document.getElementById('rc-data'))">
+                        <option value="spend_desc" ${this.expDescSort === 'spend_desc' ? 'selected' : ''}>Sort: Highest Spend</option>
+                        <option value="count_desc" ${this.expDescSort === 'count_desc' ? 'selected' : ''}>Sort: Most Transactions</option>
+                        <option value="name_asc" ${this.expDescSort === 'name_asc' ? 'selected' : ''}>Sort: Name (A-Z)</option>
+                    </select>
+                    <div style="position:relative;display:inline-block;">
+                        <input type="text" class="form-control form-control-sm" placeholder="Search description..." value="${this.expDescSearch || ''}" style="width: 200px; padding:6px 12px 6px 30px; border-radius:8px; border:1px solid #cbd5e1; font-size:0.85rem;" oninput="window.Reports.expDescSearch=this.value; window.Reports.renderExpenseDescriptionReport(document.getElementById('rc-data'))">
+                        <i class="fas fa-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#94a3b8;font-size:0.8rem;"></i>
+                    </div>
+                    ${(this.expDescCardFilter !== 'all' || this.expDescTypeFilter !== 'Debit' || this.expDescSort !== 'spend_desc' || this.expDescSearch) ? `
+                    <button class="btn btn-sm btn-outline" style="border-radius:8px;padding:6px 12px;background:#f8fafc;border:1px solid #cbd5e1;" onclick="window.Reports.expDescCardFilter='all'; window.Reports.expDescTypeFilter='Debit'; window.Reports.expDescSort='spend_desc'; window.Reports.expDescSearch=''; window.Reports.renderExpenseDescriptionReport(document.getElementById('rc-data'))" title="Reset Filters"><i class="fas fa-undo me-1"></i>Reset</button>` : ''}
+                </div>
+                <span class="badge" style="background:#f1f5f9;color:#475569;font-weight:600;font-size:0.8rem;padding:6px 12px;border-radius:20px;border:1px solid #e2e8f0;">Showing ${groups.length} Expense Categories</span>
+            </div>
+
+            <!-- Table -->
+            <div class="card data-table-wrapper table-responsive shadow-sm" style="border-radius:12px;">
+                <table class="table data-table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 50px;">#</th>
+                            <th>Expense Type / Description</th>
+                            <th class="text-center">Txn Count</th>
+                            <th class="text-right">Total Spend (Debits)</th>
+                            <th class="text-right">Credits/Refunds</th>
+                            <th class="text-right">Net Spend</th>
+                            <th style="width: 160px;">Share of Spend</th>
+                            <th class="text-right">Avg Ticket</th>
+                            <th class="text-right">Max Txn</th>
+                            <th class="text-center">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+
+        if (groups.length === 0) {
+            html += `<tr><td colspan="10" class="text-center py-5 text-muted"><i class="fas fa-tags fa-2x mb-2 text-secondary d-block"></i>No expense records found matching criteria.</td></tr>`;
+        } else {
+            groups.forEach((g, idx) => {
+                const pct = totalSpend > 0 ? ((g.totalDebits / totalSpend) * 100).toFixed(1) : 0;
+                const avgTicket = (g.totalDebits / (g.count || 1));
+
+                html += `
+                    <tr>
+                        <td class="text-muted fw-bold">${idx + 1}</td>
+                        <td>
+                            <strong class="text-dark">${g.description}</strong>
+                        </td>
+                        <td class="text-center"><span class="badge bg-light text-dark fw-bold">${g.count}</span></td>
+                        <td class="text-right fw-bold text-danger">${window.Utils.formatCurrency(g.totalDebits)}</td>
+                        <td class="text-right text-success">${window.Utils.formatCurrency(g.totalCredits)}</td>
+                        <td class="text-right fw-bold">${window.Utils.formatCurrency(g.netSpend)}</td>
+                        <td>
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="progress flex-grow-1" style="height: 6px; background:#e2e8f0; border-radius: 4px;">
+                                    <div class="progress-bar bg-primary" role="progressbar" style="width: ${pct}%;"></div>
+                                </div>
+                                <small class="text-muted fw-bold" style="min-width: 38px;">${pct}%</small>
+                            </div>
+                        </td>
+                        <td class="text-right text-muted">${window.Utils.formatCurrency(avgTicket)}</td>
+                        <td class="text-right text-dark">${window.Utils.formatCurrency(g.maxAmount)}</td>
+                        <td class="text-center">
+                            <button class="btn btn-sm btn-outline-primary py-0" onclick="window.Reports.showExpenseDescriptionDrilldown('${encodeURIComponent(g.description)}')"><i class="fas fa-list-ul me-1"></i> View Swipes</button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        html += `</tbody></table></div>`;
+        container.innerHTML = html;
+
+        setTimeout(() => {
+            if (chartLabels.length > 0) {
+                this.renderChart('chart_exp_desc_bar', 'bar', chartLabels, chartValues, 'Total Spent (₹)', ['#ef476f', '#06d6a0', '#118ab2', '#073b4c', '#ffd166', '#7209b7', '#f72585', '#4cc9f0']);
+                
+                const otherSpend = Math.max(0, totalSpend - chartValues.reduce((a,b)=>a+b, 0));
+                const pieLabels = [...chartLabels.slice(0, 5), 'Others'];
+                const pieValues = [...chartValues.slice(0, 5), otherSpend];
+                this.renderChart('chart_exp_desc_pie', 'doughnut', pieLabels, pieValues, 'Spend Distribution', ['#ef476f', '#06d6a0', '#118ab2', '#073b4c', '#ffd166', '#94a3b8']);
+            }
+        }, 50);
+    },
+
+    showExpenseDescriptionDrilldown: function(encodedDesc) {
+        const desc = decodeURIComponent(encodedDesc);
+        const allCards = window.DB.cards.getAll() || [];
+        const txns = (window.DB.transactions.getAll() || []).filter(t => String(t.description || '').trim() === desc);
+
+        let rowsHtml = '';
+        let totalAmt = 0;
+
+        txns.forEach(t => {
+            totalAmt += window.Utils.parseNum(t.amount);
+            const c = allCards.find(x => String(x.card_id) === String(t.card_id));
+            rowsHtml += `
+                <tr>
+                    <td>${window.Utils.formatDate(t.txn_date)}</td>
+                    <td><strong>${c ? c.cardholder_name : 'Unknown'}</strong> <small class="text-muted">(*${c ? c.card_last4 : ''})</small></td>
+                    <td>${t.zoho_ledger || '-'}</td>
+                    <td><span class="badge ${t.txn_type === 'Debit' ? 'bg-danger' : 'bg-success'}">${t.txn_type}</span></td>
+                    <td class="text-right fw-bold">${window.Utils.formatCurrency(t.amount)}</td>
+                    <td><code>${t.statement_month || '-'}</code></td>
+                </tr>
+            `;
+        });
+
+        const modalHtml = `
+            <div class="mb-3 p-3 bg-light rounded border d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <h4 class="mb-1 text-primary">${desc}</h4>
+                    <span class="text-muted small">${txns.length} transactions recorded under this expense description</span>
+                </div>
+                <div>
+                    <span class="badge bg-danger p-2" style="font-size: 0.95rem;">Total Spent: ${window.Utils.formatCurrency(totalAmt)}</span>
+                </div>
+            </div>
+            <div class="table-responsive" style="max-height: 350px; overflow-y: auto;">
+                <table class="table data-table table-sm table-hover mb-0">
+                    <thead class="table-light sticky-top">
+                        <tr>
+                            <th>Date</th>
+                            <th>Cardholder</th>
+                            <th>Zoho Ledger</th>
+                            <th>Type</th>
+                            <th class="text-right">Amount</th>
+                            <th>Statement Month</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rowsHtml}</tbody>
+                </table>
+            </div>
+        `;
+
+        if (window.App && window.App.showModal) {
+            window.App.showModal(`Expense Detail: ${desc}`, modalHtml);
+        }
+    },
+
     // ── ITEM 02: ZOHO VS STATEMENT RECONCILIATION ENGINE ───────
     reconCardId: 'all',
     reconMonth: 'all',
@@ -1579,10 +2110,12 @@ exportCurrentReport: function() {
             }
 
             if(this.reconMode === 'billed') {
-                // BILLED RECONCILIATION: Compare Zoho transactions against Statements
+                // BILLED RECONCILIATION: Compare Zoho transactions against Statements + Unbilled
                 cStmts.forEach(s => {
                     const stmtBilled = window.Utils.parseNum(s.billed_amount);
-                    totalStatementAmount += stmtBilled;
+                    const stmtUnbilled = window.Utils.parseNum(s.unbilled_amount);
+                    const totalRecognized = stmtBilled + stmtUnbilled;
+                    totalStatementAmount += totalRecognized;
 
                     // Match Zoho transactions falling around statement month (priority to explicit statement_month)
                     const mStr = window.Utils.formatMonthYear(s.statement_month);
@@ -1593,27 +2126,34 @@ exportCurrentReport: function() {
                     const zohoSum = matchedTxns.reduce((sum, t) => sum + window.Utils.parseNum(t.amount), 0);
                     totalZohoAmount += zohoSum;
 
-                    const diff = zohoSum - stmtBilled;
+                    // Reconcile: Zoho Debits vs (Statement Billed + Unbilled)
+                    const diff = zohoSum - totalRecognized;
                     let status = 'Matched';
                     if(Math.abs(diff) < 1) {
                         status = 'Matched';
                         matchedCount++;
-                        matchedAmount += stmtBilled;
-                    } else if(zohoSum > 0 && stmtBilled === 0) {
+                        matchedAmount += totalRecognized;
+                    } else if(zohoSum > 0 && totalRecognized === 0) {
                         status = 'In Zoho Only';
-                    } else if(stmtBilled > 0 && zohoSum === 0) {
+                    } else if(totalRecognized > 0 && zohoSum === 0) {
                         status = 'In Statement Only';
                     } else {
                         status = 'Discrepancy';
                     }
 
+                    const desc = stmtUnbilled > 0
+                        ? `Statement Total (Billed: ${window.Utils.formatCurrency(stmtBilled)} + Unbilled: ${window.Utils.formatCurrency(stmtUnbilled)}) vs Zoho (${matchedTxns.length} txns)`
+                        : `Statement Billed Amount vs Zoho Sum (${matchedTxns.length} txns)`;
+
                     reconRows.push({
                         cardName: `${card.cardholder_name} (*${card.card_last4})`,
                         bank: card.bank_name,
                         period: mStr,
-                        description: `Statement Billed Amount vs Zoho Sum (${matchedTxns.length} txns)`,
+                        description: desc,
                         zohoAmount: zohoSum,
-                        stmtAmount: stmtBilled,
+                        stmtAmount: totalRecognized,
+                        billedAmount: stmtBilled,
+                        unbilledAmount: stmtUnbilled,
                         diff: diff,
                         status: status,
                         mode: 'Billed'

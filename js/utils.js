@@ -492,7 +492,41 @@ window.Utils = {
         tail[i >> 2] |= 0x80 << ((i % 4) << 3);
         if (i > 55) { md5cycle(state, tail); for (i = 0; i < 16; i++) tail[i] = 0; }
         tail[14] = n * 8; md5cycle(state, tail);
-        return state.map(x => { let s = ""; for (let i = 0; i < 4; i++) { s += ('0' + ((x >> (i * 8)) & 0xFF).toString(16)).slice(-2); } return s; }).join('');
         function md5blk(s) { let m = []; for (let i = 0; i < 64; i += 4) { m[i >> 2] = s.charCodeAt(i) + (s.charCodeAt(i + 1) << 8) + (s.charCodeAt(i + 2) << 16) + (s.charCodeAt(i + 3) << 24); } return m; }
+    },
+
+    matchSearchOrAmount(item, rawQuery) {
+        if (!rawQuery || !String(rawQuery).trim()) return true;
+        const q = String(rawQuery).trim();
+        const amt = this.parseNum(item.amount);
+
+        // 1. Range: e.g. "5000-10000", "5000..10000", "5000 to 10000"
+        const rangeMatch = q.match(/^(\d+(?:\.\d+)?)\s*(?:-|to|\.\.)\s*(\d+(?:\.\d+)?)$/i);
+        if (rangeMatch) {
+            const min = parseFloat(rangeMatch[1]);
+            const max = parseFloat(rangeMatch[2]);
+            return amt >= min && amt <= max;
+        }
+
+        // 2. Comparison operators: >=, <=, <>, !=, >, <, =
+        const compMatch = q.match(/^(>=|<=|<>|!=|>|<|=)\s*(\d+(?:\.\d+)?)$/);
+        if (compMatch) {
+            const op = compMatch[1];
+            const target = parseFloat(compMatch[2]);
+            if (op === '>') return amt > target;
+            if (op === '<') return amt < target;
+            if (op === '>=') return amt >= target;
+            if (op === '<=') return amt <= target;
+            if (op === '<>' || op === '!=') return amt !== target;
+            if (op === '=') return amt === target;
+        }
+
+        // 3. Fallback to text matching
+        const lq = q.toLowerCase();
+        const desc = String(item.description || '').toLowerCase();
+        const ledger = String(item.zoho_ledger || '').toLowerCase();
+        const cat = String(item.category || '').toLowerCase();
+        const amtStr = String(item.amount || '');
+        return desc.includes(lq) || ledger.includes(lq) || cat.includes(lq) || amtStr.includes(lq);
     }
 };

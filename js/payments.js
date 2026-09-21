@@ -13,6 +13,9 @@ window.Payments = {
                 <div class="tab ${this.currentTab === 'statements' ? 'active' : ''}" onclick="window.Payments.switchTab('statements')">
                     Statements
                 </div>
+                <div class="tab ${this.currentTab === 'unbilled' ? 'active' : ''}" onclick="window.Payments.switchTab('unbilled')">
+                    Unbilled Spends
+                </div>
                 <div class="tab ${this.currentTab === 'payments' ? 'active' : ''}" onclick="window.Payments.switchTab('payments')">
                     Payments History
                 </div>
@@ -36,6 +39,7 @@ window.Payments = {
     renderTabContent: function() {
         const content = document.getElementById('payments-content');
         if(this.currentTab === 'statements') this.renderStatements(content);
+        else if(this.currentTab === 'unbilled') this.renderUnbilled(content);
         else if(this.currentTab === 'payments') this.renderPayments(content);
         else if(this.currentTab === 'outstanding') this.renderOutstanding(content);
     },
@@ -419,6 +423,212 @@ window.Payments = {
         if(window.App && window.App.showModal) window.App.showModal("Statement Details", html);
     },
 
+    renderUnbilled: function(content) {
+        const allCards = window.DB.cards.getAll() || [];
+        const unbilledRecords = window.DB.unbilled.getAll() || [];
+        
+        this.unbilledCardFilter = this.unbilledCardFilter || 'all';
+        this.unbilledStatusFilter = this.unbilledStatusFilter || 'Unbilled';
+        this.unbilledMonthFilter = this.unbilledMonthFilter || 'all';
+
+        let filtered = unbilledRecords;
+        if (this.unbilledCardFilter !== 'all') {
+            filtered = filtered.filter(u => String(u.card_id) === String(this.unbilledCardFilter));
+        }
+        if (this.unbilledStatusFilter !== 'all') {
+            filtered = filtered.filter(u => (u.status || 'Unbilled') === this.unbilledStatusFilter);
+        }
+        if (this.unbilledMonthFilter !== 'all') {
+            filtered = filtered.filter(u => u.expected_statement_month === this.unbilledMonthFilter);
+        }
+
+        const totalPending = unbilledRecords.filter(u => (u.status || 'Unbilled') === 'Unbilled')
+            .reduce((s, u) => s + (window.Utils.parseNum(u.amount) || 0), 0);
+        const totalBilled = unbilledRecords.filter(u => u.status === 'Billed')
+            .reduce((s, u) => s + (window.Utils.parseNum(u.amount) || 0), 0);
+
+        const months = [...new Set(unbilledRecords.map(u => u.expected_statement_month).filter(Boolean))].sort();
+
+        let html = `
+            <div class="stats-row mb-4">
+                <div class="col-md-6">
+                    <div class="card p-3 shadow-sm" style="background:#fff7ed;border-left:4px solid #f97316;">
+                        <h6 class="text-muted mb-1">Total Pending Unbilled</h6>
+                        <h3 class="mb-0 text-dark fw-bold" style="color:#c2410c !important;">${window.Utils.formatCurrency(totalPending)}</h3>
+                        <small class="text-muted">Awaiting statement billing</small>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card p-3 shadow-sm" style="background:#f0fdf4;border-left:4px solid #22c55e;">
+                        <h6 class="text-muted mb-1">Total Closed / Billed</h6>
+                        <h3 class="mb-0 text-dark fw-bold" style="color:#15803d !important;">${window.Utils.formatCurrency(totalBilled)}</h3>
+                        <small class="text-muted">Reconciled into statements</small>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card data-table-wrapper table-responsive mb-4">
+                <div class="table-toolbar flex-wrap gap-2">
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <h4 class="card-title mb-0 me-2">Unbilled Spends</h4>
+                        <select class="form-select form-select-sm" style="width:auto;" onchange="window.Payments.unbilledCardFilter=this.value; window.Payments.renderTabContent();">
+                            <option value="all">All Cards</option>
+                            ${allCards.map(c => `<option value="${c.card_id}" ${String(this.unbilledCardFilter) === String(c.card_id) ? 'selected' : ''}>${c.cardholder_name} (*${c.card_last4})</option>`).join('')}
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;" onchange="window.Payments.unbilledStatusFilter=this.value; window.Payments.renderTabContent();">
+                            <option value="all" ${this.unbilledStatusFilter === 'all' ? 'selected' : ''}>All Status</option>
+                            <option value="Unbilled" ${this.unbilledStatusFilter === 'Unbilled' ? 'selected' : ''}>Pending (Unbilled)</option>
+                            <option value="Billed" ${this.unbilledStatusFilter === 'Billed' ? 'selected' : ''}>Closed (Billed)</option>
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;" onchange="window.Payments.unbilledMonthFilter=this.value; window.Payments.renderTabContent();">
+                            <option value="all">All Expected Months</option>
+                            ${months.map(m => `<option value="${m}" ${this.unbilledMonthFilter === m ? 'selected' : ''}>${m}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-outline-primary" onclick="window.DataImport.openModal('unbilled')"><i class="fas fa-file-import"></i> Import</button>
+                        <button class="btn btn-primary" onclick="window.Payments.showUnbilledModal()"><i class="fas fa-plus"></i> Add Unbilled Txn</button>
+                    </div>
+                </div>
+
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Card</th>
+                            <th>Description</th>
+                            <th>Expected Month</th>
+                            <th class="text-right">Amount</th>
+                            <th>Status</th>
+                            <th>Linked Statement</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+
+        if (filtered.length === 0) {
+            html += `<tr><td colspan="8" class="text-center py-4 text-muted">No unbilled records found matching filter.</td></tr>`;
+        } else {
+            filtered.forEach(u => {
+                const c = allCards.find(x => String(x.card_id) === String(u.card_id));
+                const cardStr = c ? `${c.cardholder_name} (*${c.card_last4})` : 'Unknown';
+                const isBilled = u.status === 'Billed';
+                const statusBadge = isBilled ? '<span class="badge bg-success">Billed</span>' : '<span class="badge bg-warning text-dark">Unbilled</span>';
+                const stmtLink = u.statement_id ? `<a href="javascript:void(0)" onclick="window.Payments.viewStatement('${u.statement_id}')" class="text-primary fw-bold">Stmt #${u.statement_id}</a>` : '<span class="text-muted">-</span>';
+
+                html += `
+                    <tr>
+                        <td>${window.Utils.formatDate(u.txn_date)}</td>
+                        <td><strong>${cardStr}</strong></td>
+                        <td>${u.description || '-'}</td>
+                        <td><code>${u.expected_statement_month || '-'}</code></td>
+                        <td class="text-right fw-bold">${window.Utils.formatCurrency(u.amount)}</td>
+                        <td>${statusBadge}</td>
+                        <td>${stmtLink}</td>
+                        <td>
+                            <div class="actions">
+                                <button class="btn btn-sm btn-icon text-warning" title="Edit" onclick="window.Payments.showUnbilledModal('${u.unbilled_id}')"><i class="fas fa-edit"></i></button>
+                                <button class="btn btn-sm btn-icon text-danger" title="Delete" onclick="window.Payments.deleteUnbilled('${u.unbilled_id}')"><i class="fas fa-trash"></i></button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        html += `</tbody></table></div>`;
+        content.innerHTML = html;
+    },
+
+    showUnbilledModal: function(id = null, preCardId = null) {
+        const allCards = window.DB.cards.getAll() || [];
+        const unbilledRecords = window.DB.unbilled.getAll() || [];
+        const item = unbilledRecords.find(x => String(x.unbilled_id) === String(id)) || {};
+        const isEdit = !!id;
+        const selCardId = item.card_id || preCardId || '';
+
+        const html = `
+            <form onsubmit="event.preventDefault(); window.Payments.saveUnbilled('${id || ''}')">
+                <div class="row form-row mb-3">
+                    <div class="col-md-6 form-group">
+                        <label class="form-label">Select Card</label>
+                        <select class="form-select" id="fu_card" required>
+                            <option value="">-- Select --</option>
+                            ${allCards.map(c => `<option value="${c.card_id}" ${String(selCardId) === String(c.card_id) ? 'selected' : ''}>${c.cardholder_name} (*${c.card_last4})</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="col-md-6 form-group">
+                        <label class="form-label">Transaction Date</label>
+                        <input type="date" class="form-control" id="fu_date" value="${item.txn_date ? window.Utils.formatDateInput(new Date(item.txn_date)) : window.Utils.formatDateInput(new Date())}" required>
+                    </div>
+                </div>
+                <div class="row form-row mb-3">
+                    <div class="col-md-6 form-group">
+                        <label class="form-label">Description / Merchant</label>
+                        <input type="text" class="form-control" id="fu_desc" value="${item.description || ''}" placeholder="e.g. Amazon, Fuel, Cloud Server" required>
+                    </div>
+                    <div class="col-md-6 form-group">
+                        <label class="form-label">Amount (₹)</label>
+                        <input type="number" step="0.01" class="form-control" id="fu_amount" value="${item.amount || ''}" placeholder="0.00" required>
+                    </div>
+                </div>
+                <div class="row form-row mb-3">
+                    <div class="col-md-6 form-group">
+                        <label class="form-label">Expected Statement Month (YYYY-MM)</label>
+                        <input type="month" class="form-control" id="fu_month" value="${item.expected_statement_month || ''}">
+                    </div>
+                    <div class="col-md-6 form-group">
+                        <label class="form-label">Status</label>
+                        <select class="form-select" id="fu_status" required>
+                            <option value="Unbilled" ${item.status !== 'Billed' ? 'selected' : ''}>Unbilled (Pending)</option>
+                            <option value="Billed" ${item.status === 'Billed' ? 'selected' : ''}>Billed (Closed)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="text-end mt-4">
+                    <button type="button" class="btn btn-secondary" onclick="window.App.closeModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">${isEdit ? 'Update Unbilled' : 'Save Unbilled'}</button>
+                </div>
+            </form>
+        `;
+
+        if (window.App && window.App.showModal) {
+            window.App.showModal(isEdit ? "Edit Unbilled Transaction" : "Add Unbilled Transaction", html);
+        }
+    },
+
+    saveUnbilled: async function(id) {
+        const data = {
+            card_id:                  parseInt(document.getElementById('fu_card').value) || 0,
+            txn_date:                 document.getElementById('fu_date').value,
+            description:              document.getElementById('fu_desc').value,
+            amount:                   parseFloat(document.getElementById('fu_amount').value) || 0,
+            expected_statement_month: document.getElementById('fu_month').value || null,
+            status:                   document.getElementById('fu_status').value
+        };
+
+        if (window.App) window.App.closeModal();
+        if (window.App) window.App.showToast('Saving unbilled transaction...', 'info');
+
+        if (id) {
+            await window.DB.unbilled.update(id, data);
+        } else {
+            await window.DB.unbilled.add(data);
+        }
+
+        if (window.App) window.App.showToast('Unbilled transaction saved', 'success');
+        this.renderTabContent();
+    },
+
+    deleteUnbilled: async function(id) {
+        if (!confirm('Are you sure you want to delete this unbilled record?')) return;
+        if (window.App) window.App.showToast('Deleting...', 'info');
+        await window.DB.unbilled.delete(id);
+        if (window.App) window.App.showToast('Unbilled transaction deleted', 'success');
+        this.renderTabContent();
+    },
+
     showStatementModal: function(stmtId = null) {
         const stmts = window.DB.statements.getAll() || [];
         const s = stmts.find(x => String(x.statement_id) === String(stmtId)) || {};
@@ -433,7 +643,7 @@ window.Payments = {
                 <div class="row form-row mb-3">
                     <div class="col-md-6 form-group">
                         <label class="form-label">Select Card</label>
-                        <select class="form-select" id="fs_card" required ${isEdit ? 'disabled' : ''}>
+                        <select class="form-select" id="fs_card" required ${isEdit ? 'disabled' : ''} onchange="window.Payments.loadUnbilledForStatement(this.value)">
                             <option value="">-- Select --</option>
                             ${allCards.map(c => `<option value="${c.card_id}" ${String(s.card_id) === String(c.card_id) ? 'selected' : ''}>${c.cardholder_name} (*${c.card_last4})</option>`).join('')}
                         </select>
@@ -443,6 +653,9 @@ window.Payments = {
                         <input type="month" class="form-control" id="fs_month" value="${window.Utils.formatMonthInput(s.statement_month)}" required>
                     </div>
                 </div>
+
+                <div id="stmt_unbilled_container" class="mb-3"></div>
+
                 <div class="row form-row mb-3">
                     <div class="col-md-4 form-group">
                         <label class="form-label">Opening Balance</label>
@@ -504,7 +717,125 @@ window.Payments = {
             </form>
         `;
         if(window.App && window.App.showModal) window.App.showModal(isEdit ? "Edit Statement" : "Add Statement", html);
-        setTimeout(() => { window.Utils.makeSearchable('fs_card'); }, 50);
+        setTimeout(() => { 
+            window.Utils.makeSearchable('fs_card');
+            if (s.card_id) window.Payments.loadUnbilledForStatement(s.card_id);
+        }, 50);
+    },
+
+    loadUnbilledForStatement: function(cardId) {
+        const container = document.getElementById('stmt_unbilled_container');
+        if(!container) return;
+        if(!cardId) {
+            container.innerHTML = '';
+            return;
+        }
+
+        const pending = window.DB.unbilled.getPendingByCard(cardId);
+        if(pending.length === 0) {
+            container.innerHTML = `
+                <div class="alert alert-light border py-2 px-3 small text-muted d-flex justify-content-between align-items-center" style="background:#f8fafc;border-radius:8px;">
+                    <span><i class="fas fa-info-circle text-info me-1"></i> No unbilled transactions found for this card.</span>
+                    <button type="button" class="btn btn-sm btn-link text-decoration-none py-0" onclick="window.Payments.showUnbilledModal(null, '${cardId}')">+ Record Unbilled</button>
+                </div>
+            `;
+            return;
+        }
+
+        const totalUnbilledAmt = pending.reduce((sum, u) => sum + (window.Utils.parseNum(u.amount) || 0), 0);
+
+        let tableRows = '';
+        pending.forEach(u => {
+            tableRows += `
+                <tr>
+                    <td class="text-center" style="width: 36px;">
+                        <input type="checkbox" class="cb-unbilled-item form-check-input" data-id="${u.unbilled_id}" data-amount="${u.amount}" onchange="window.Payments.onUnbilledCheckboxChange()">
+                    </td>
+                    <td>${window.Utils.formatDate(u.txn_date)}</td>
+                    <td>${u.description || '-'}</td>
+                    <td><span class="badge bg-light text-dark">${u.expected_statement_month || '-'}</span></td>
+                    <td class="text-right fw-bold">${window.Utils.formatCurrency(u.amount)}</td>
+                </tr>
+            `;
+        });
+
+        container.innerHTML = `
+            <div class="card p-3 border mb-2" style="background:#f8fafc; border-radius:8px; border-color:#e2e8f0;">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <strong class="small text-dark"><i class="fas fa-receipt text-primary me-1"></i> Unbilled Transactions (${pending.length} available &bull; Total: ${window.Utils.formatCurrency(totalUnbilledAmt)})</strong>
+                    <span class="badge bg-info text-dark" id="unbilled_calc_badge">Selected: ₹ 0.00 (0 items)</span>
+                </div>
+                <div class="table-responsive" style="max-height: 160px; overflow-y: auto; background:#fff; border:1px solid #e2e8f0; border-radius:6px;">
+                    <table class="table table-sm table-hover mb-0" style="font-size: 0.82rem;">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th class="text-center" style="width: 36px;">
+                                    <input type="checkbox" id="cb_unbilled_all" class="form-check-input" onchange="window.Payments.toggleAllUnbilledCheckboxes(this)">
+                                </th>
+                                <th>Date</th>
+                                <th>Description</th>
+                                <th>Expected Month</th>
+                                <th class="text-right">Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${tableRows}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="d-flex justify-content-between align-items-center mt-2 small text-muted">
+                    <span><i class="fas fa-check-double text-success me-1"></i> Check items included in this statement to auto-fill Billed Amount.</span>
+                    <button type="button" class="btn btn-sm btn-outline-primary py-0" onclick="window.Payments.selectAllUnbilled(true)">Select All</button>
+                </div>
+            </div>
+        `;
+    },
+
+    toggleAllUnbilledCheckboxes: function(masterCb) {
+        const cbs = document.querySelectorAll('.cb-unbilled-item');
+        cbs.forEach(cb => { cb.checked = masterCb.checked; });
+        this.onUnbilledCheckboxChange();
+    },
+
+    selectAllUnbilled: function(checkAll = true) {
+        const master = document.getElementById('cb_unbilled_all');
+        if(master) master.checked = checkAll;
+        const cbs = document.querySelectorAll('.cb-unbilled-item');
+        cbs.forEach(cb => { cb.checked = checkAll; });
+        this.onUnbilledCheckboxChange();
+    },
+
+    onUnbilledCheckboxChange: function() {
+        const cbs = Array.from(document.querySelectorAll('.cb-unbilled-item'));
+        let checkedSum = 0;
+        let checkedCount = 0;
+        let totalSum = 0;
+
+        cbs.forEach(cb => {
+            const amt = parseFloat(cb.getAttribute('data-amount')) || 0;
+            totalSum += amt;
+            if(cb.checked) {
+                checkedSum += amt;
+                checkedCount++;
+            }
+        });
+
+        const remSum = Math.max(0, totalSum - checkedSum);
+
+        const badge = document.getElementById('unbilled_calc_badge');
+        if(badge) badge.innerText = `Selected: ${window.Utils.formatCurrency(checkedSum)} (${checkedCount} items)`;
+
+        const billedInput = document.getElementById('fs_billed');
+        if(billedInput && checkedCount > 0) {
+            billedInput.value = checkedSum.toFixed(2);
+        }
+
+        const unbilledInput = document.getElementById('fs_unbilled');
+        if(unbilledInput) {
+            unbilledInput.value = remSum.toFixed(2);
+        }
+
+        this.calcOutstanding();
     },
 
     // Called by oninput on the 3 calc fields — live recalculates Closing Outstanding
@@ -517,10 +848,10 @@ window.Payments = {
         if(el) el.value = result.toFixed(2);
     },
 
-
     saveStatement: async function(id) {
+        const cardId = document.getElementById('fs_card').value;
         const data = {
-            card_id:              document.getElementById('fs_card').value,
+            card_id:              cardId,
             statement_month:      document.getElementById('fs_month').value,
             opening_balance:      parseFloat(document.getElementById('fs_open').value) || 0,
             billed_amount:        parseFloat(document.getElementById('fs_billed').value) || 0,
@@ -532,13 +863,33 @@ window.Payments = {
             payment_status:       document.getElementById('fs_status').value
         };
 
+        // Capture checked unbilled IDs before closing modal
+        const checkedCbs = Array.from(document.querySelectorAll('.cb-unbilled-item:checked'));
+        const checkedIds = checkedCbs.map(cb => cb.getAttribute('data-id'));
+
         if(window.App) window.App.closeModal();
         if(window.App) window.App.showToast('Saving to Google Sheets...', 'info');
 
-        if(id) await window.DB.statements.update(id, data);
-        else   await window.DB.statements.add(data);
+        let stmtId = id;
+        if(id) {
+            await window.DB.statements.update(id, data);
+        } else {
+            stmtId = await window.DB.statements.add(data);
+        }
 
-        if(window.App) window.App.showToast('Statement saved', 'success');
+        // Close/bill checked unbilled transactions
+        if(checkedIds.length > 0 && stmtId) {
+            const updates = checkedIds.map(uid => ({
+                unbilled_id: parseInt(uid),
+                status: 'Billed',
+                statement_id: parseInt(stmtId)
+            }));
+            await window.DB.unbilled.updateBatch(updates);
+            if(window.App) window.App.showToast(`Statement saved & ${checkedIds.length} unbilled transactions marked as Billed!`, 'success');
+        } else {
+            if(window.App) window.App.showToast('Statement saved', 'success');
+        }
+
         this.renderTabContent();
     },
 
