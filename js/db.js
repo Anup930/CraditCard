@@ -125,6 +125,10 @@ var DB = {
         }
     },
 
+    async save() {
+        return this.saveToEncryptedStorage();
+    },
+
     // ── DATA NORMALIZATION ─────────────────────────────────────
 
     _normalizeDataset() {
@@ -801,8 +805,13 @@ var DB = {
             return [...DB.data.import_batches].sort((a, b) => (b.import_date || '').localeCompare(a.import_date || ''));
         },
         async add(batch) {
-            batch.batch_id    = DB.nextId('import_batches');
-            batch.import_date = batch.import_date || Utils.now();
+            batch.batch_id      = batch.batch_id || DB.nextId('import_batches');
+            batch.file_name     = batch.file_name || 'Zoho_Import.xlsx';
+            batch.import_date   = batch.import_date || Utils.now();
+            batch.valid_records = batch.valid_records !== undefined ? batch.valid_records : (batch.record_count || 0);
+            batch.total_records = batch.total_records !== undefined ? batch.total_records : batch.valid_records;
+            batch.status        = batch.status || 'Success';
+
             DB.data.import_batches.unshift(batch);
             await DB.saveToEncryptedStorage();
             await DB.apiPost({ action: 'add', sheet: 'import_batches', data: batch });

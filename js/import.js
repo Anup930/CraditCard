@@ -60,8 +60,14 @@ window.Import = {
                     <i class="fas fa-cloud-upload-alt fa-3x text-primary mb-3"></i>
                     <h4>Drag and drop your file here</h4>
                     <p class="text-muted">Supports .xlsx, .xls, .csv</p>
-                    <input type="file" id="file-input" class="d-none" accept=".xlsx, .xls, .csv">
-                    <button class="btn btn-outline-primary mt-2" onclick="document.getElementById('file-input').click()">Browse Files</button>
+                    <div class="alert alert-info py-2 px-3 d-inline-block small mb-3 text-start" style="max-width:550px;">
+                        <i class="fas fa-info-circle me-1"></i> <strong>Required Columns:</strong> <code>Date</code>, <code>Statement Month (YYYY-MM)</code>, <code>Ledger Name</code>, aur <code>Amount</code>.
+                    </div>
+                    <div>
+                        <input type="file" id="file-input" class="d-none" accept=".xlsx, .xls, .csv">
+                        <button class="btn btn-primary mt-1" onclick="document.getElementById('file-input').click()"><i class="fas fa-folder-open me-1"></i> Browse Files</button>
+                        <button class="btn btn-outline-secondary mt-1 ms-2" onclick="window.Import.downloadTemplate()"><i class="fas fa-download me-1"></i> Download Template (.xlsx)</button>
+                    </div>
                 </div>
             `;
             
@@ -74,7 +80,7 @@ window.Import = {
         else if (this.currentStep === 2) {
             if(!this.fileData || this.fileData.length === 0) return this.prevStep();
             
-            const headers = Object.keys(this.fileData[0]);
+            const headers = (this.fileHeaders && this.fileHeaders.length > 0) ? this.fileHeaders : Object.keys(this.fileData[0]);
             
             content.innerHTML = `
                 <h4>Map Columns</h4>
@@ -82,22 +88,32 @@ window.Import = {
                 
                 <div class="row mb-4">
                     <div class="col-md-6">
-                        <div class="form-group mb-2"><label>Date Column</label><select class="form-select" id="map_date">${this.getOptions(headers, 'date')}</select></div>
-                        <div class="form-group mb-2">
-                            <label>Statement Month Column <span class="badge bg-primary ms-1" style="font-size:0.7rem;">For Reconciliation</span></label>
-                            <select class="form-select" id="map_stmt_month">
-                                <option value="">-- Optional: Auto-detect from Date --</option>
-                                ${this.getOptions(headers, 'statement.*month|stmt.*month|billing.*month|statement_month|statement.*period|billing.*cycle|month')}
-                            </select>
+                        <div class="form-group mb-3">
+                            <label class="fw-bold">Date Column <span class="text-danger">*</span></label>
+                            <select class="form-select" id="map_date">${this.getOptions(headers, 'date')}</select>
                         </div>
-                        <div class="form-group mb-2"><label>Ledger/Account Column</label><select class="form-select" id="map_ledger">${this.getOptions(headers, 'ledger|account|name')}</select></div>
-                        <div class="form-group mb-2"><label>Description/Details</label><select class="form-select" id="map_desc">${this.getOptions(headers, 'desc|detail|narration')}</select></div>
+                        <div class="form-group mb-3 p-3 bg-light border border-primary rounded">
+                            <label class="fw-bold text-dark">Statement Month Column <span class="text-danger">* (Required)</span></label>
+                            <select class="form-select border-primary fw-bold" id="map_stmt_month">
+                                <option value="">-- Select Statement Month Column from File --</option>
+                                ${this.getOptions(headers, 'statement.*month|stmt.*month|billing.*month|statement_month|statemen|statement|month')}
+                            </select>
+                            <div class="form-text text-muted mt-2 small">
+                                <em>File me Statement Month column nahi hai? Niche se poore batch ke liye month select karein:</em>
+                            </div>
+                            <div class="input-group input-group-sm mt-1">
+                                <span class="input-group-text bg-white">Or Fixed Statement Month:</span>
+                                <input type="month" class="form-control" id="fixed_stmt_month" placeholder="YYYY-MM">
+                            </div>
+                        </div>
+                        <div class="form-group mb-3"><label class="fw-bold">Ledger/Account Column <span class="text-danger">*</span></label><select class="form-select" id="map_ledger">${this.getOptions(headers, 'ledger|account|name')}</select></div>
+                        <div class="form-group mb-3"><label>Description/Details</label><select class="form-select" id="map_desc">${this.getOptions(headers, 'desc|detail|narration')}</select></div>
                     </div>
                     <div class="col-md-6">
-                        <div class="form-group mb-2"><label>Amount Column</label><select class="form-select" id="map_amount">${this.getOptions(headers, 'amount')}</select></div>
-                        <div class="form-group mb-2"><label>Transaction Type (Debit/Credit)</label><select class="form-select" id="map_type"><option value="">-- Auto Detect from Amount --</option>${this.getOptions(headers, 'type|cr/dr')}</select></div>
-                        <div class="form-group mb-2"><label>Debit Column (Alternative)</label><select class="form-select" id="map_debit"><option value="">-- None --</option>${this.getOptions(headers, 'debit|dr')}</select></div>
-                        <div class="form-group mb-2"><label>Credit Column (Alternative)</label><select class="form-select" id="map_credit"><option value="">-- None --</option>${this.getOptions(headers, 'credit|cr')}</select></div>
+                        <div class="form-group mb-3"><label class="fw-bold">Amount Column <span class="text-danger">*</span></label><select class="form-select" id="map_amount">${this.getOptions(headers, 'amount')}</select></div>
+                        <div class="form-group mb-3"><label>Transaction Type (Debit/Credit)</label><select class="form-select" id="map_type"><option value="">-- Auto Detect from Amount --</option>${this.getOptions(headers, 'type|cr/dr')}</select></div>
+                        <div class="form-group mb-3"><label>Debit Column (Alternative)</label><select class="form-select" id="map_debit"><option value="">-- None --</option>${this.getOptions(headers, 'debit|dr')}</select></div>
+                        <div class="form-group mb-3"><label>Credit Column (Alternative)</label><select class="form-select" id="map_credit"><option value="">-- None --</option>${this.getOptions(headers, 'credit|cr')}</select></div>
                     </div>
                 </div>
                 
@@ -205,7 +221,30 @@ window.Import = {
             if (window.XLSX) {
                 const workbook = window.XLSX.read(data, {type: 'array'});
                 const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-                this.fileData = window.XLSX.utils.sheet_to_json(firstSheet, {raw: false});
+                
+                // 1. Extract Row 1 Column Headers directly from sheet AOA
+                const aoa = window.XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
+                let headerRow = [];
+                if (aoa && aoa.length > 0) {
+                    headerRow = aoa[0].map(h => String(h || '').trim()).filter(Boolean);
+                }
+
+                // 2. Parse data with defval: '' so empty cells in row 2 (like Opening Balance row) are NOT dropped
+                this.fileData = window.XLSX.utils.sheet_to_json(firstSheet, { raw: false, defval: '' });
+                
+                // 3. Collect all unique headers across header row and data rows
+                const allKeys = new Set(headerRow);
+                if (this.fileData && this.fileData.length > 0) {
+                    this.fileData.forEach(row => {
+                        Object.keys(row).forEach(k => {
+                            const trimmed = String(k || '').trim();
+                            if (trimmed && !trimmed.startsWith('__EMPTY')) {
+                                allKeys.add(trimmed);
+                            }
+                        });
+                    });
+                }
+                this.fileHeaders = Array.from(allKeys);
                 
                 if(this.fileData && this.fileData.length > 0) {
                     this.currentStep = 2;
@@ -224,12 +263,20 @@ window.Import = {
         const mDate = document.getElementById('map_date').value;
         const mStmtMonthEl = document.getElementById('map_stmt_month');
         const mStmtMonth = mStmtMonthEl ? mStmtMonthEl.value : '';
+        const fixedStmtMonthEl = document.getElementById('fixed_stmt_month');
+        const fixedStmtMonth = fixedStmtMonthEl ? fixedStmtMonthEl.value : '';
         const mLedger = document.getElementById('map_ledger').value;
         const mDesc = document.getElementById('map_desc').value;
         const mAmount = document.getElementById('map_amount').value;
         const mType = document.getElementById('map_type').value;
         const mDebit = document.getElementById('map_debit').value;
         const mCredit = document.getElementById('map_credit').value;
+
+        if (!mStmtMonth && !fixedStmtMonth) {
+            alert("⚠️ Statement Month is Required!\nPlease select the 'Statement Month Column' from your file, or specify a Fixed Statement Month for this import.");
+            if (mStmtMonthEl) mStmtMonthEl.focus();
+            return;
+        }
 
         const allCards = window.DB.cards.getAll();
         const ledgerMap = {};
@@ -290,9 +337,8 @@ window.Import = {
             let stmtMonth = null;
             if (mStmtMonth && row[mStmtMonth] && String(row[mStmtMonth]).trim() !== '') {
                 stmtMonth = window.Utils.normalizeStatementMonth(row[mStmtMonth]);
-            } else if (parsedDate) {
-                const card = cardId ? window.DB.cards.getById(cardId) : null;
-                stmtMonth = window.Utils.calculateStatementMonth(parsedDate, card, window.DB.statements.getAll());
+            } else if (fixedStmtMonth) {
+                stmtMonth = window.Utils.normalizeStatementMonth(fixedStmtMonth);
             }
 
             const record = {
@@ -310,6 +356,7 @@ window.Import = {
             let isValid = true;
             let errorMsg = [];
             if(!parsedDate) { isValid = false; errorMsg.push("Invalid Date"); }
+            if(!stmtMonth) { isValid = false; errorMsg.push("Missing Statement Month"); }
             if(!ledgerName) { isValid = false; errorMsg.push("Missing Ledger"); }
             if(!cardId) { isValid = false; errorMsg.push("Unmapped Ledger"); }
             if(amount === 0 || isNaN(amount)) { isValid = false; errorMsg.push("Invalid Amount"); }
@@ -327,7 +374,7 @@ window.Import = {
         this.renderStep();
     },
 
-    commitImport: function() {
+    commitImport: async function() {
         if(this.validRecords.length === 0) return;
 
         const batchId = 'IMP-' + Date.now();
@@ -341,18 +388,38 @@ window.Import = {
             return copy;
         });
 
-        window.DB.transactions.addBatch(cleanRecords, batchId);
-        
-        window.DB.importBatches.add({
-            batch_id: batchId,
-            import_date: new Date().toISOString(),
-            record_count: cleanRecords.length,
-            status: 'Success'
-        });
+        const importBtn = document.querySelector('button[onclick*="commitImport"]');
+        if (importBtn) {
+            importBtn.disabled = true;
+            importBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Importing...';
+        }
 
-        window.DB.save();
-        this.currentStep = 4;
-        this.renderStep();
+        try {
+            await window.DB.transactions.addBatch(cleanRecords, batchId);
+            
+            await window.DB.importBatches.add({
+                batch_id: batchId,
+                file_name: this.uploadedFile ? this.uploadedFile.name : 'Zoho_Import.xlsx',
+                import_date: new Date().toISOString(),
+                record_count: cleanRecords.length,
+                valid_records: cleanRecords.length,
+                total_records: cleanRecords.length,
+                status: 'Success'
+            });
+
+            this.currentStep = 4;
+            this.renderStep();
+            if (window.App && window.App.showToast) {
+                window.App.showToast(`Successfully imported ${cleanRecords.length} transactions!`, 'success');
+            }
+        } catch (err) {
+            console.error('Import commit error:', err);
+            alert('Import encountered an error: ' + err.message);
+            if (importBtn) {
+                importBtn.disabled = false;
+                importBtn.innerText = `Import ${cleanRecords.length} Valid Records`;
+            }
+        }
     },
 
     renderHistory: function() {
@@ -381,12 +448,13 @@ window.Import = {
         `;
 
         batches.forEach(b => {
+            const count = b.valid_records !== undefined ? b.valid_records : (b.total_records !== undefined ? b.total_records : (b.record_count !== undefined ? b.record_count : 0));
             html += `
                 <tr>
                     <td>${b.batch_id}</td>
                     <td>${window.Utils.formatDate(b.import_date)}</td>
-                    <td>${b.record_count}</td>
-                    <td><span class="badge bg-success">${b.status}</span></td>
+                    <td>${count}</td>
+                    <td><span class="badge bg-success">${b.status || 'Success'}</span></td>
                 </tr>
             `;
         });
@@ -400,5 +468,19 @@ window.Import = {
             this.currentStep--;
             this.renderStep();
         }
+    },
+
+    downloadTemplate: function() {
+        if (!window.XLSX) return alert("XLSX library not loaded");
+        const headers = ["Date (YYYY-MM-DD)", "Statement Month (YYYY-MM)", "Ledger Name", "Description", "Type (Debit/Credit)", "Amount"];
+        const sampleRows = [
+            ["2026-08-16", "2026-09", "Alok ICICI Credit Card", "Food Expense", "Credit", 966.00],
+            ["2026-08-16", "2026-09", "Alok ICICI Credit Card", "Partner's Current A/c- Alok Harlalka", "Credit", 6598.00],
+            ["2026-08-14", "2026-08", "Alok ICICI Credit Card", "Yash Harlalka", "Credit", 414.35]
+        ];
+        const ws = window.XLSX.utils.aoa_to_sheet([headers, ...sampleRows]);
+        const wb = window.XLSX.utils.book_new();
+        window.XLSX.utils.book_append_sheet(wb, ws, "Zoho_Template");
+        window.XLSX.writeFile(wb, "Zoho_Import_Template.xlsx");
     }
 };
