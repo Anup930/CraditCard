@@ -319,6 +319,45 @@ var DB = {
             }
         },
 
+        async addBatch(cardList) {
+            if (!Array.isArray(cardList) || cardList.length === 0) return 0;
+            const addedIds = [];
+            const startId = DB.nextId('credit_cards');
+            const preparedCards = cardList.map((card, i) => {
+                const tempId           = card.card_id ? parseInt(card.card_id) : (startId + i);
+                card.card_id           = tempId;
+                card.card_last4        = card.card_last4 || Utils.getLast4(card.card_number);
+                card.bank_name         = card.bank_name || Utils.extractBankName(card.card_type);
+                card.credit_limit      = Utils.parseNum(card.credit_limit);
+                card.fee_waiver_target = Utils.parseNum(card.fee_waiver_target);
+                card.reward_points     = Utils.parseNum(card.reward_points);
+                card.status            = card.status || 'Active';
+                card.created_at        = card.created_at || Utils.now();
+                card.updated_at        = Utils.now();
+                addedIds.push(tempId);
+                return card;
+            });
+
+            // 1. Optimistic in-place mutation
+            DB.data.credit_cards.unshift(...preparedCards);
+            await DB.saveToEncryptedStorage();
+            DB.notify('cards_batch_added', { count: preparedCards.length });
+
+            // 2. Asynchronous Cloud Write
+            try {
+                await DB.apiPost({ action: 'addBatch', sheet: 'credit_cards', records: preparedCards });
+                DB.logActivity('Credit Cards', 'Batch Import', `Imported ${preparedCards.length} cards from Excel`);
+                return preparedCards.length;
+            } catch (err) {
+                console.warn('[DB] Cloud batch add failed, rolling back:', err);
+                const idsToRemove = new Set(addedIds.map(String));
+                DB.data.credit_cards = DB.data.credit_cards.filter(c => !idsToRemove.has(String(c.card_id)));
+                await DB.saveToEncryptedStorage();
+                DB.notify('card_rollback', { addedIds });
+                throw new Error('Failed to save imported cards to cloud: ' + err.message);
+            }
+        },
+
         async update(id, data) {
             const idx = DB.data.credit_cards.findIndex(c => String(c.card_id) === String(id));
             if (idx === -1) return false;
@@ -377,7 +416,57 @@ var DB = {
         getByOwner(name)  { return DB.data.credit_cards.filter(c => c.primary_cardholder === name); },
         getPrimary()      { return DB.data.credit_cards.filter(c => c.card_category === 'Primary'); },
         getOwners()       { return [...new Set(DB.data.credit_cards.map(c => c.primary_cardholder))].filter(Boolean).sort(); },
-        getBanks()        { return [...new Set(DB.data.credit_cards.map(c => c.bank_name).filter(Boolean))].sort(); }
+        getBanks()        { return [...new Set(DB.data.credit_cards.map(c => c.bank_name).filter(Boolean))].sort(); },
+
+        getCardLimitMetrics(cardId) {
+            const card = DB.cards.getById(cardId);
+            if (!card) return { card_id: cardId, limit: 0, used: 0, available: 0, util: 0, billed: 0, unbilled: 0, totalPayable: 0, totalSpend: 0 };
+
+            const limit = Utils.parseNum(card.credit_limit);
+            const cStmts = DB.data.statements
+                .filter(s => String(s.card_id) === String(card.card_id))
+                .sort((a, b) => (b.statement_month || '').localeCompare(a.statement_month || ''));
+
+            const latestStmt = cStmts[0] || null;
+            // Total Payable: from imported statements only (unpaid closing outstandings)
+            const unpaidStmts = cStmts.filter(s => s.payment_status !== 'Paid');
+            const totalPayable = unpaidStmts.reduce((sum, s) => sum + Utils.parseNum(s.closing_outstanding), 0);
+
+            // Latest billed statement spend
+            const billedSpend = latestStmt ? (latestStmt.payment_status === 'Paid' ? 0 : Utils.parseNum(latestStmt.closing_outstanding)) : 0;
+
+            // Unbilled spend: current transactions not yet appearing in any statement, or statement unbilled
+            const cTxns = DB.data.transactions.filter(t => String(t.card_id) === String(card.card_id));
+            const totalSpend = cTxns.filter(t => t.txn_type === 'Debit').reduce((sum, t) => sum + Utils.parseNum(t.amount), 0);
+
+            let unbilledSpend = latestStmt ? Utils.parseNum(latestStmt.unbilled_amount) : 0;
+            if (unbilledSpend === 0 && cStmts.length === 0) {
+                // If no statements imported yet, all debit transactions are unbilled
+                unbilledSpend = totalSpend;
+            }
+
+            // Used = spend on imported statement + unbilled records for that card
+            const used = billedSpend + unbilledSpend;
+            const available = Math.max(0, limit - used);
+            const util = limit > 0 ? parseFloat(((used / limit) * 100).toFixed(1)) : 0;
+
+            return {
+                card_id: card.card_id,
+                cardholder_name: card.cardholder_name,
+                bank_name: card.bank_name,
+                card_category: card.card_category,
+                card_type: card.card_type,
+                card_last4: card.card_last4,
+                limit,
+                used,
+                available,
+                util,
+                billed: billedSpend,
+                unbilled: unbilledSpend,
+                totalPayable,
+                totalSpend
+            };
+        }
     },
 
     // ── TRANSACTIONS MODULE ────────────────────────────────────
@@ -713,28 +802,27 @@ var DB = {
     getKPIs() {
         const cards     = this.data.credit_cards.filter(c => c.status === 'Active');
         const primary   = cards.filter(c => c.card_category === 'Primary');
-        const stmts     = this.data.statements;
 
         const totalLimit   = cards.reduce((s, c) => s + Utils.parseNum(c.credit_limit), 0);
         const totalRewards = cards.reduce((s, c) => s + Utils.parseNum(c.reward_points), 0);
 
-        let totalPayable = 0, totalUnbilled = 0, over50 = 0;
+        // ITEM 01 & 04:
+        // Total Payable: Strictly from imported statements only (independent)
+        // Unbilled: Sourced only from unbilled data (independent)
+        // Used Limit: Recomputed dynamically tying to transaction/statement spend
+        let totalPayable  = 0;
+        let totalUnbilled = 0;
+        let totalUsed     = 0;
+        let over50        = 0;
 
         cards.forEach(c => {
-            const cs = stmts.filter(s => String(s.card_id) === String(c.card_id))
-                            .sort((a, b) => (b.statement_month || '').localeCompare(a.statement_month || ''));
-            if (cs.length) {
-                const latestStmt = cs[0];
-                const out = latestStmt.payment_status === 'Paid' ? 0 : Utils.parseNum(latestStmt.closing_outstanding);
-                const unb = Utils.parseNum(latestStmt.unbilled_amount);
-                totalPayable  += out;
-                totalUnbilled += unb;
-                const lim = Utils.parseNum(c.credit_limit);
-                if (lim > 0 && (out + unb) / lim * 100 > 50) over50++;
-            }
+            const m = this.cards.getCardLimitMetrics(c.card_id);
+            totalPayable  += m.totalPayable;
+            totalUnbilled += m.unbilled;
+            totalUsed     += m.used;
+            if (m.limit > 0 && m.util > 50) over50++;
         });
 
-        const usedLimit = totalPayable + totalUnbilled;
         const feeWaiver = cards.reduce((sum, c) => {
             const target = Utils.parseNum(c.fee_waiver_target);
             if (!target) return sum;
@@ -748,11 +836,11 @@ var DB = {
             totalCards: cards.length, 
             primaryCards: primary.length,
             totalLimit, 
-            totalPayable, 
-            totalUnbilled, 
+            totalPayable,       // Sourced ONLY from imported statements (never netted/mixed)
+            totalUnbilled,      // Sourced ONLY from unbilled records (independent)
             totalRewards,
-            usedLimit, 
-            availableLimit: Math.max(0, totalLimit - usedLimit),
+            usedLimit: totalUsed, 
+            availableLimit: Math.max(0, totalLimit - totalUsed),
             over50Count: over50, 
             feeWaiverBalance: feeWaiver
         };

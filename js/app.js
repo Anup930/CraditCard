@@ -382,11 +382,82 @@ window.App = {
 
     closeConfirm() {
         document.getElementById('confirm-overlay').classList.add('hidden');
+    },
+
+    // ── SYSTEM UPDATES & QUERIES RESOLUTION OVERLAY ───────────
+    _updateTimer: null,
+    _updateCountdownInterval: null,
+
+    showUpdateModal() {
+        const overlay = document.getElementById('update-modal-overlay');
+        if (!overlay) return;
+        overlay.classList.remove('hidden');
+
+        // Reset iframe src if needed
+        const frame = document.getElementById('update-frame');
+        if (frame && !frame.src.includes('update.html')) {
+            frame.src = 'update.html';
+        }
+
+        // Auto close by default in 15 minutes (15 * 60 * 1000 = 900,000 ms)
+        if (this._updateTimer) clearTimeout(this._updateTimer);
+        this._updateTimer = setTimeout(() => {
+            this.closeUpdateModal();
+        }, 15 * 60 * 1000);
+
+        // Update badge countdown in top overlay bar
+        let remainingSeconds = 15 * 60;
+        if (this._updateCountdownInterval) clearInterval(this._updateCountdownInterval);
+        const timerBadge = document.getElementById('overlay-timer-badge');
+        if (timerBadge) timerBadge.textContent = '15:00';
+
+        this._updateCountdownInterval = setInterval(() => {
+            remainingSeconds--;
+            if (remainingSeconds <= 0) {
+                clearInterval(this._updateCountdownInterval);
+                this._updateCountdownInterval = null;
+                this.closeUpdateModal();
+                return;
+            }
+            if (timerBadge) {
+                const mins = Math.floor(remainingSeconds / 60);
+                const secs = remainingSeconds % 60;
+                timerBadge.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+            }
+        }, 1000);
+    },
+
+    closeUpdateModal() {
+        const overlay = document.getElementById('update-modal-overlay');
+        if (overlay) overlay.classList.add('hidden');
+
+        if (this._updateTimer) {
+            clearTimeout(this._updateTimer);
+            this._updateTimer = null;
+        }
+        if (this._updateCountdownInterval) {
+            clearInterval(this._updateCountdownInterval);
+            this._updateCountdownInterval = null;
+        }
     }
 };
 
+// Global keydown handler for Escape to close update modal
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        if (window.App && typeof window.App.closeUpdateModal === 'function') {
+            window.App.closeUpdateModal();
+        }
+    }
+});
+
 // Boot: show login screen, or auto-resume session
 document.addEventListener('DOMContentLoaded', async () => {
+    // Show system update overlay on every refresh (auto-closes in 15 mins or upon click)
+    if (window.App && typeof window.App.showUpdateModal === 'function') {
+        window.App.showUpdateModal();
+    }
+
     if (Auth.checkSession()) {
         // Initialize AES-GCM encryption key for resumed session
         if (window.CryptoStore) {

@@ -14,14 +14,14 @@ window.Dashboard = {
         kpiGrid.style.cssText = 'display:grid;grid-template-columns:repeat(4,1fr);gap:16px;';
         
         const kpiData = [
-            { label: 'Total Payable',         value: window.Utils.formatCurrency(kpis.totalPayable),      icon: 'fa-file-invoice-dollar', gradient: 'linear-gradient(135deg,#ff6b6b 0%,#ee5a24 100%)' },
-            { label: 'Unbilled Amount',        value: window.Utils.formatCurrency(kpis.totalUnbilled),     icon: 'fa-clock',               gradient: 'linear-gradient(135deg,#ffa502 0%,#ff6348 100%)' },
-            { label: 'Total Reward Points',    value: window.Utils.formatCurrency(kpis.totalRewards).replace('₹', ''), icon: 'fa-star',    gradient: 'linear-gradient(135deg,#f9ca24 0%,#f0932b 100%)' },
-            { label: 'Total Cards',            value: kpis.totalCards,                                     icon: 'fa-credit-card',         gradient: 'linear-gradient(135deg,#667eea 0%,#764ba2 100%)' },
-            { label: 'Cards >50% Utilization', value: kpis.over50Count,                                    icon: 'fa-exclamation-triangle',gradient: 'linear-gradient(135deg,#fc5c7d 0%,#6a82fb 100%)' },
-            { label: 'Total Limit',            value: window.Utils.formatCurrency(kpis.totalLimit),        icon: 'fa-chart-line',          gradient: 'linear-gradient(135deg,#11998e 0%,#38ef7d 100%)' },
-            { label: 'Available Limit',        value: window.Utils.formatCurrency(kpis.availableLimit),    icon: 'fa-wallet',              gradient: 'linear-gradient(135deg,#4facfe 0%,#00f2fe 100%)' },
-            { label: 'Fee Waiver Balance',     value: window.Utils.formatCurrency(kpis.feeWaiverBalance),  icon: 'fa-gift',                gradient: 'linear-gradient(135deg,#a18cd1 0%,#fbc2eb 100%)' }
+            { label: 'Total Payable',         sub: 'Imported Statements Only',   value: window.Utils.formatCurrency(kpis.totalPayable),      icon: 'fa-file-invoice-dollar', gradient: 'linear-gradient(135deg,#ff6b6b 0%,#ee5a24 100%)' },
+            { label: 'Unbilled Amount',        sub: 'Current Unbilled Records',    value: window.Utils.formatCurrency(kpis.totalUnbilled),     icon: 'fa-clock',               gradient: 'linear-gradient(135deg,#ffa502 0%,#ff6348 100%)' },
+            { label: 'Total Reward Points',    sub: 'Active Rewards',             value: window.Utils.formatCurrency(kpis.totalRewards).replace('₹', ''), icon: 'fa-star',    gradient: 'linear-gradient(135deg,#f9ca24 0%,#f0932b 100%)' },
+            { label: 'Total Cards',            sub: `${kpis.primaryCards} Primary Cards`, value: kpis.totalCards,                                     icon: 'fa-credit-card',         gradient: 'linear-gradient(135deg,#667eea 0%,#764ba2 100%)' },
+            { label: 'Cards >50% Utilization', sub: 'High Usage',                 value: kpis.over50Count,                                    icon: 'fa-exclamation-triangle',gradient: 'linear-gradient(135deg,#fc5c7d 0%,#6a82fb 100%)' },
+            { label: 'Total Limit',            sub: 'Sanctioned Limit',           value: window.Utils.formatCurrency(kpis.totalLimit),        icon: 'fa-chart-line',          gradient: 'linear-gradient(135deg,#11998e 0%,#38ef7d 100%)' },
+            { label: 'Available Limit',        sub: 'Current Available',          value: window.Utils.formatCurrency(kpis.availableLimit),    icon: 'fa-wallet',              gradient: 'linear-gradient(135deg,#4facfe 0%,#00f2fe 100%)' },
+            { label: 'Fee Waiver Balance',     sub: 'Remaining Target',           value: window.Utils.formatCurrency(kpis.feeWaiverBalance),  icon: 'fa-gift',                gradient: 'linear-gradient(135deg,#a18cd1 0%,#fbc2eb 100%)' }
         ];
 
         kpiData.forEach(item => {
@@ -35,7 +35,8 @@ window.Dashboard = {
                 </div>
                 <div>
                     <div style="font-size:22px;font-weight:800;color:#fff;line-height:1.2;">${item.value}</div>
-                    <div style="font-size:12px;color:rgba(255,255,255,0.85);font-weight:500;margin-top:2px;">${item.label}</div>
+                    <div style="font-size:12px;color:rgba(255,255,255,0.92);font-weight:600;margin-top:2px;">${item.label}</div>
+                    <div style="font-size:10px;color:rgba(255,255,255,0.75);margin-top:1px;">${item.sub}</div>
                 </div>
             `;
             kpiGrid.appendChild(card);

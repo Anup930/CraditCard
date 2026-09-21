@@ -13,15 +13,24 @@ window.Master = {
         
         // Page Header
         const header = document.createElement('div');
-        header.className = 'page-header d-flex justify-content-between align-items-center mb-4';
+        header.className = 'page-header d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4';
         header.innerHTML = `
             <div>
                 <h2 class="page-title">Master Card List</h2>
                 <div class="page-subtitle text-muted">Manage all credit cards in the system</div>
             </div>
-            <button class="btn btn-primary" onclick="window.Master.showAddModal()">
-                <i class="fas fa-plus"></i> Add New Card
-            </button>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <input type="file" id="card-master-file-input" accept=".xlsx,.xls,.csv" style="display:none;" onchange="window.Master.handleImportFile(event)">
+                <button class="btn btn-outline" onclick="window.Master.downloadSampleTemplate()" title="Download sample Excel template for importing cards" style="background:#ffffff;border-radius:8px;font-weight:600;">
+                    <i class="fas fa-file-download text-success"></i> Template
+                </button>
+                <button class="btn btn-outline" onclick="window.Master.triggerImportCards()" title="Import cards from Excel or CSV" style="background:#eef2ff;color:#4361ee;border-color:#c7d2fe;border-radius:8px;font-weight:600;">
+                    <i class="fas fa-file-import"></i> Import Cards
+                </button>
+                <button class="btn btn-primary" onclick="window.Master.showAddModal()" style="border-radius:8px;font-weight:600;">
+                    <i class="fas fa-plus"></i> Add New Card
+                </button>
+            </div>
         `;
 
         // Filter Bar
@@ -503,5 +512,301 @@ window.Master = {
         }
 
         this.renderTable();
+    },
+
+    // ── IMPORT CARDS FROM EXCEL / CSV ─────────────────────────
+    triggerImportCards: function() {
+        const fileInput = document.getElementById('card-master-file-input');
+        if (fileInput) {
+            fileInput.value = '';
+            fileInput.click();
+        }
+    },
+
+    downloadSampleTemplate: function() {
+        if (!window.XLSX) {
+            alert('Excel library not loaded yet. Please wait or refresh.');
+            return;
+        }
+
+        const sampleRows = [
+            {
+                'Primary Owner': 'Alok Harlalka',
+                'Category': 'Primary',
+                'Cardholder Name': 'Alok Harlalka',
+                'Bank Name': 'ICICI',
+                'Card Type': 'ICICI Emerald Visa',
+                'Card Number': '4315XXXXXXXX0004',
+                'Zoho Ledger Name': 'Alok ICICI Credit Card',
+                'Credit Limit': 1000000,
+                'Address': 'Kolkata, WB',
+                'Email': 'alok@gretexgroup.com',
+                'Phone': '9830000000',
+                'Statement Date': 15,
+                'Due Date': 5,
+                'Renewal Date': '2027-03-31',
+                'Fee Waiver Target': 500000,
+                'Reward Points': 15000,
+                'Status': 'Active',
+                'Remarks': 'Corporate primary card'
+            },
+            {
+                'Primary Owner': 'Alok Harlalka',
+                'Category': 'Add-on',
+                'Cardholder Name': 'YASH HARLALKA',
+                'Bank Name': 'ICICI',
+                'Card Type': 'ICICI Emerald Visa',
+                'Card Number': '4315XXXXXXXX0111',
+                'Zoho Ledger Name': 'Alok ICICI Credit Card',
+                'Credit Limit': 1000000,
+                'Address': 'Kolkata, WB',
+                'Email': 'yash@gretexgroup.com',
+                'Phone': '9830000001',
+                'Statement Date': 15,
+                'Due Date': 5,
+                'Renewal Date': '2027-03-31',
+                'Fee Waiver Target': 0,
+                'Reward Points': 0,
+                'Status': 'Active',
+                'Remarks': 'Add-on card attached to Alok ICICI'
+            },
+            {
+                'Primary Owner': 'Gourav Harlalka',
+                'Category': 'Primary',
+                'Cardholder Name': 'Gourav Harlalka',
+                'Bank Name': 'HDFC',
+                'Card Type': 'HDFC Regalia Gold',
+                'Card Number': '5421XXXXXXXX8821',
+                'Zoho Ledger Name': 'Gourav HDFC Card',
+                'Credit Limit': 500000,
+                'Address': 'Mumbai, MH',
+                'Email': 'gourav@gretexgroup.com',
+                'Phone': '9820000000',
+                'Statement Date': 20,
+                'Due Date': 10,
+                'Renewal Date': '2027-06-30',
+                'Fee Waiver Target': 400000,
+                'Reward Points': 25000,
+                'Status': 'Active',
+                'Remarks': 'Primary executive card'
+            }
+        ];
+
+        const ws = window.XLSX.utils.json_to_sheet(sampleRows);
+        const wb = window.XLSX.utils.book_new();
+        window.XLSX.utils.book_append_sheet(wb, ws, "credit_cards");
+        window.XLSX.writeFile(wb, "Credit_Card_Master_Template.xlsx");
+        if (window.App && window.App.showToast) {
+            window.App.showToast('Sample template downloaded: Credit_Card_Master_Template.xlsx', 'success');
+        }
+    },
+
+    handleImportFile: function(e) {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+
+        if (!window.XLSX) {
+            alert('Excel library not loaded yet. Please wait or refresh.');
+            return;
+        }
+
+        if (window.App && window.App.showToast) {
+            window.App.showToast(`Reading ${file.name}...`, 'info');
+        }
+
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            try {
+                const data = new Uint8Array(evt.target.result);
+                const workbook = window.XLSX.read(data, { type: 'array', cellDates: true });
+                
+                let sheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('credit') || n.toLowerCase().includes('card')) || workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[sheetName];
+                const rawRows = window.XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+
+                if (!rawRows || rawRows.length === 0) {
+                    alert('No rows found in the selected Excel file.');
+                    return;
+                }
+
+                const parsedCards = [];
+                rawRows.forEach((r) => {
+                    const getVal = (...keys) => {
+                        for (let k of keys) {
+                            for (let rk of Object.keys(r)) {
+                                if (rk.trim().toLowerCase().replace(/[\s_\-]+/g, '') === k.toLowerCase().replace(/[\s_\-]+/g, '')) {
+                                    return r[rk];
+                                }
+                            }
+                        }
+                        return '';
+                    };
+
+                    const name = String(getVal('cardholder_name', 'cardholder', 'name', 'card_holder_name') || '').trim();
+                    const owner = String(getVal('primary_cardholder', 'primary_owner', 'owner') || name).trim();
+                    const cardNum = String(getVal('card_number', 'card_no', 'cardnumber', 'number') || '').trim();
+                    const bank = String(getVal('bank_name', 'bank') || '').trim();
+                    const cardType = String(getVal('card_type', 'type') || '').trim();
+                    const ledger = String(getVal('zoho_ledger_name', 'zoho_ledger', 'ledger_name', 'ledger') || '').trim();
+                    
+                    let cat = String(getVal('card_category', 'category') || '').trim();
+                    if (!cat) {
+                        cat = (name && owner && name.toLowerCase() !== owner.toLowerCase()) ? 'Add-on' : 'Primary';
+                    } else if (cat.toLowerCase().includes('add')) {
+                        cat = 'Add-on';
+                    } else {
+                        cat = 'Primary';
+                    }
+
+                    const limit = window.Utils.parseNum(getVal('credit_limit', 'limit'));
+                    const last4 = cardNum ? window.Utils.getLast4(cardNum) : String(getVal('card_last4', 'last4') || '').padStart(4, '0').slice(-4);
+
+                    if (name || cardNum || ledger) {
+                        parsedCards.push({
+                            cardholder_name: name || owner || 'Cardholder',
+                            primary_cardholder: owner || name || 'Primary Owner',
+                            card_category: cat,
+                            bank_name: bank || (window.Utils.extractBankName(cardType) || 'Bank'),
+                            card_type: cardType || (bank ? `${bank} Card` : 'Credit Card'),
+                            card_number: cardNum || `XXXX-XXXX-XXXX-${last4}`,
+                            card_last4: last4,
+                            credit_limit: limit,
+                            zoho_ledger_name: ledger || `${name} ${bank} Card`,
+                            address: String(getVal('address') || '').trim(),
+                            email: String(getVal('email') || '').trim(),
+                            phone: String(getVal('phone', 'mobile') || '').trim(),
+                            statement_date: parseInt(getVal('statement_date', 'bill_date')) || null,
+                            due_date: parseInt(getVal('due_date')) || null,
+                            renewal_date: getVal('renewal_date') ? new Date(getVal('renewal_date')).toISOString() : null,
+                            fee_waiver_target: window.Utils.parseNum(getVal('fee_waiver_target', 'waiver_target')),
+                            reward_points: parseInt(getVal('reward_points', 'rewards')) || 0,
+                            status: String(getVal('status') || 'Active').trim(),
+                            remarks: String(getVal('remarks') || '').trim()
+                        });
+                    }
+                });
+
+                if (parsedCards.length === 0) {
+                    alert('Could not find valid card records in this file. Please verify column headers or use the sample template.');
+                    return;
+                }
+
+                window.Master.showImportPreviewModal(parsedCards, file.name);
+
+            } catch (err) {
+                console.error('Import parse error:', err);
+                alert('Error parsing Excel file: ' + err.message);
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    },
+
+    showImportPreviewModal: function(cards, fileName) {
+        window.Master._pendingImportCards = cards;
+
+        const primaryCount = cards.filter(c => c.card_category === 'Primary').length;
+        const addonCount = cards.filter(c => c.card_category === 'Add-on').length;
+
+        let previewRows = cards.slice(0, 8).map((c, i) => `
+            <tr>
+                <td><strong>${i + 1}</strong></td>
+                <td>
+                    <strong>${c.cardholder_name}</strong>
+                    <div class="small text-muted">${c.primary_cardholder !== c.cardholder_name ? `Owner: ${c.primary_cardholder}` : ''}</div>
+                </td>
+                <td>
+                    <span class="badge" style="${c.card_category === 'Primary' ? 'background:#eef0ff;color:#4361ee;border:1px solid #4361ee;' : 'background:#f3e8ff;color:#7209b7;border:1px solid #7209b7;'}font-weight:700;">
+                        ${c.card_category}
+                    </span>
+                </td>
+                <td><strong>${c.bank_name}</strong> <small class="text-muted">(${c.card_type})</small></td>
+                <td><code style="font-family:'JetBrains Mono',monospace;">${c.card_last4 ? `**** ${c.card_last4}` : c.card_number}</code></td>
+                <td class="text-right fw-bold text-success">${window.Utils.formatCurrency(c.credit_limit)}</td>
+                <td><small class="text-muted">${c.zoho_ledger_name}</small></td>
+            </tr>
+        `).join('');
+
+        const modalHtml = `
+            <div style="margin-bottom: 20px;">
+                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 p-3 bg-light rounded border mb-3">
+                    <div>
+                        <div class="small text-muted text-uppercase fw-bold"><i class="fas fa-file-excel text-success me-1"></i> File Loaded</div>
+                        <div class="fw-bold fs-6" style="color:#1e293b;">${fileName}</div>
+                    </div>
+                    <div class="d-flex align-items-center gap-3">
+                        <span class="badge" style="background:#e8f0fe;color:#1a73e8;border:1px solid #c2e7ff;padding:6px 12px;font-size:0.8rem;border-radius:100px;">
+                            <i class="fas fa-credit-card me-1"></i> ${cards.length} Cards Total
+                        </span>
+                        <span class="badge" style="background:#e6faf4;color:#06d6a0;border:1px solid #06d6a0;padding:6px 12px;font-size:0.8rem;border-radius:100px;">
+                            ${primaryCount} Primary
+                        </span>
+                        <span class="badge" style="background:#f3e8ff;color:#7209b7;border:1px solid #7209b7;padding:6px 12px;font-size:0.8rem;border-radius:100px;">
+                            ${addonCount} Add-on
+                        </span>
+                    </div>
+                </div>
+
+                <div class="small text-muted mb-2">
+                    <i class="fas fa-eye me-1"></i> Showing first ${Math.min(cards.length, 8)} of ${cards.length} cards detected:
+                </div>
+
+                <div class="table-responsive border rounded" style="max-height: 340px; overflow-y: auto;">
+                    <table class="table data-table table-hover mb-0">
+                        <thead class="table-light" style="position: sticky; top: 0; z-index: 2;">
+                            <tr>
+                                <th>#</th>
+                                <th>Cardholder</th>
+                                <th>Category</th>
+                                <th>Bank &amp; Type</th>
+                                <th>Card Last 4</th>
+                                <th class="text-right">Credit Limit</th>
+                                <th>Zoho Ledger</th>
+                            </tr>
+                        </thead>
+                        <tbody>${previewRows}</tbody>
+                    </table>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center mt-4 pt-3 border-top">
+                    <button class="btn btn-secondary" onclick="window.App.closeModal()">
+                        <i class="fas fa-times me-1"></i> Cancel
+                    </button>
+                    <button class="btn btn-primary" onclick="window.Master.executeImport()" style="background:#4361ee;font-weight:700;padding:8px 22px;border-radius:8px;">
+                        <i class="fas fa-check-circle me-1"></i> Confirm &amp; Import ${cards.length} Cards
+                    </button>
+                </div>
+            </div>
+        `;
+
+        if (window.App && window.App.showModal) {
+            window.App.showModal("Import Credit Cards Preview", modalHtml);
+        }
+    },
+
+    executeImport: async function() {
+        const cards = window.Master._pendingImportCards;
+        if (!cards || cards.length === 0) return;
+
+        if (window.App) {
+            window.App.showToast(`Importing ${cards.length} cards into system...`, 'info');
+            window.App.closeModal();
+        }
+
+        try {
+            await window.DB.cards.addBatch(cards);
+            if (window.App) {
+                window.App.showToast(`🎉 Successfully imported ${cards.length} cards!`, 'success');
+                window.App.updateCardCount();
+            }
+            window.Master._pendingImportCards = null;
+            window.Master.render(window.Master.container);
+        } catch (err) {
+            console.error('Import failed:', err);
+            if (window.App) {
+                window.App.showToast('Import failed: ' + err.message, 'error');
+            } else {
+                alert('Import failed: ' + err.message);
+            }
+        }
     }
 };
