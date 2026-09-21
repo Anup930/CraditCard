@@ -137,6 +137,9 @@
                         <button id="btn-cloud-sync" class="btn btn-sm" style="display:inline-flex;align-items:center;gap:6px;font-size:0.75rem;padding:5px 12px;border-radius:100px;background:#e8f0fe;color:#1a73e8;border:1px solid #c2e7ff;cursor:pointer;" title="Click to sync latest data with Google Sheets">
                             <i class="fas fa-sync-alt" id="sync-icon"></i> <span id="sync-text">Cloud Sync</span>
                         </button>
+                        <button id="btn-show-updates" class="btn btn-sm" onclick="App.showUpdateModal()" style="display:inline-flex;align-items:center;gap:6px;font-size:0.75rem;padding:5px 12px;border-radius:100px;background:#f3e8ff;color:#7209b7;border:1px solid #d8b4fe;cursor:pointer;font-weight:600;" title="View System Updates & Client Queries Log">
+                            <i class="fas fa-bolt"></i> <span>⚡ What's New (v2.1)</span>
+                        </button>
                         <span id="db-status" class="badge badge-success" title="Hardware-Accelerated AES-GCM 256-bit Encryption Active">
                             <i class="fas fa-shield-alt"></i> AES-256
                         </span>
@@ -159,6 +162,23 @@
                 </div>
             </div>
         </main>
+    </div>
+
+    <!-- ===== System Update Overlay (Auto-opens on refresh, auto-closes in 15 mins) ===== -->
+    <div id="update-modal-overlay" class="modal-overlay hidden" style="z-index: 10000; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px);">
+        <div style="width: 95%; max-width: 1240px; height: 92vh; background: #0f172a; border-radius: 16px; border: 1px solid #334155; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 25px 60px rgba(0,0,0,0.7); position: relative;">
+            <div style="background: #1e293b; padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #334155;">
+                <div style="display: flex; align-items: center; gap: 10px; color: #f8fafc; font-weight: 600; font-size: 0.9rem;">
+                    <i class="fas fa-bolt" style="color: #f9c74f;"></i>
+                    <span>CCMS System Update Log &amp; Client Query Resolutions</span>
+                    <span id="overlay-timer-badge" style="background: rgba(67, 97, 238, 0.2); color: #70a6ff; border: 1px solid #4361ee80; padding: 2px 10px; border-radius: 100px; font-size: 0.78rem; font-family: monospace;">15:00</span>
+                </div>
+                <button onclick="App.closeUpdateModal()" class="btn-icon" style="color: #cbd5e1; font-size: 1.1rem; cursor: pointer;" title="Close updates [Esc]">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <iframe id="update-frame" src="update.html" style="width: 100%; flex: 1; border: none; background: #0f172a;" title="Update Log"></iframe>
+        </div>
     </div>
 
     <!-- ===== Modal ===== -->
