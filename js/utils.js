@@ -14,13 +14,144 @@ window.Utils = {
         return `${String(d.getDate()).padStart(2, '0')} ${months[d.getMonth()]} ${d.getFullYear()}`;
     },
     
-    // Format month year for statements, e.g., "Aug 2026" (Handles both YYYY-MM and ISO strings)
+    // Format month year for statements, e.g., "Aug 2026" (Handles YYYY-MM, ISO strings and dates)
     formatMonthYear(date) {
         if (!date) return '';
+        if (typeof date === 'string') {
+            const ym = date.trim().match(/^(\d{4})[\-\/](\d{1,2})$/);
+            if (ym) {
+                const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                const idx = parseInt(ym[2], 10) - 1;
+                if (idx >= 0 && idx < 12) {
+                    return `${months[idx]} ${ym[1]}`;
+                }
+            }
+        }
         let d = new Date(date);
         if (isNaN(d.getTime())) return String(date);
         const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
         return `${months[d.getMonth()]} ${d.getFullYear()}`;
+    },
+
+    // Normalize any statement month input to standard YYYY-MM format (e.g., "2026-07")
+    normalizeStatementMonth(val) {
+        if (!val) return '';
+        if (val instanceof Date) {
+            if (isNaN(val.getTime())) return '';
+            const y = val.getFullYear();
+            const m = String(val.getMonth() + 1).padStart(2, '0');
+            return `${y}-${m}`;
+        }
+        let str = String(val).trim();
+        if (!str) return '';
+
+        // 1. Check YYYY-MM format: "2026-07" or "2026/07"
+        let m = str.match(/^(\d{4})[\-\/](\d{1,2})$/);
+        if (m) {
+            return `${m[1]}-${String(m[2]).padStart(2, '0')}`;
+        }
+
+        // 2. Check MM-YYYY or MM/YYYY format: "07/2026" or "7-2026"
+        m = str.match(/^(\d{1,2})[\-\/](\d{4})$/);
+        if (m) {
+            return `${m[2]}-${String(m[1]).padStart(2, '0')}`;
+        }
+
+        // 3. Check DD/MM/YYYY or DD-MM-YYYY
+        const dmy = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+        if (dmy) {
+            const p1 = parseInt(dmy[1], 10);
+            const p2 = parseInt(dmy[2], 10);
+            const yr = parseInt(dmy[3], 10);
+            const mo = (p2 <= 12) ? p2 : p1;
+            return `${yr}-${String(mo).padStart(2, '0')}`;
+        }
+
+        // 4. Check text formats: "Jul 2026", "July 2026", "Jul-26", "Jul-2026"
+        const monthNames = {
+            jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+            jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
+            january: '01', february: '02', march: '03', april: '04', june: '06',
+            july: '07', august: '08', september: '09', october: '10', november: '11', december: '12'
+        };
+        m = str.match(/^([a-zA-Z]+)[\s\-\/]*(\d{2,4})$/);
+        if (m) {
+            const monKey = m[1].toLowerCase();
+            if (monthNames[monKey]) {
+                let yr = m[2];
+                if (yr.length === 2) yr = '20' + yr;
+                return `${yr}-${monthNames[monKey]}`;
+            }
+        }
+        // Reverse order: "2026 Jul"
+        m = str.match(/^(\d{4})[\s\-\/]*([a-zA-Z]+)$/);
+        if (m) {
+            const monKey = m[2].toLowerCase();
+            if (monthNames[monKey]) {
+                return `${m[1]}-${monthNames[monKey]}`;
+            }
+        }
+
+        // 5. Try general Date parsing
+        let d = new Date(str);
+        if (!isNaN(d.getTime())) {
+            const y = d.getFullYear();
+            const mo = String(d.getMonth() + 1).padStart(2, '0');
+            return `${y}-${mo}`;
+        }
+
+        return str;
+    },
+
+    // Auto-calculate Statement Month from transaction date and card statement cycle.
+    // If the transaction happens after the card's statement cut-off day (e.g. 15th),
+    // it belongs to the NEXT billing cycle statement month (e.g. 16 Aug -> 2026-09).
+    // If blank or not set, infers statement cut-off or defaults to transaction month.
+    calculateStatementMonth(txnDateStr, card, statements) {
+        if (!txnDateStr) return '';
+        const d = new Date(txnDateStr);
+        if (isNaN(d.getTime())) return '';
+
+        let stmtDay = null;
+        if (card && card.statement_date) {
+            stmtDay = parseInt(card.statement_date);
+        }
+
+        // If card does not have explicit statement_date, infer from statements of this card
+        if ((!stmtDay || isNaN(stmtDay)) && card && statements && Array.isArray(statements)) {
+            const cardStmts = statements.filter(s => String(s.card_id) === String(card.card_id));
+            for (const s of cardStmts) {
+                if (s.due_date) {
+                    const dueD = new Date(s.due_date);
+                    if (!isNaN(dueD.getTime())) {
+                        const dueDay = dueD.getDate();
+                        // Common Indian credit card due date offsets:
+                        // Due on 4-8th -> bill date ~15-16th of previous month
+                        // Due on 1-3rd -> bill date ~12-13th of previous month
+                        // Due on 20-26th -> bill date ~1-5th of current month
+                        if (dueDay >= 4 && dueDay <= 8) { stmtDay = 15; break; }
+                        if (dueDay >= 1 && dueDay <= 3) { stmtDay = 12; break; }
+                        if (dueDay >= 20 && dueDay <= 26) { stmtDay = 5; break; }
+                    }
+                }
+            }
+        }
+
+        const year = d.getFullYear();
+        const month = d.getMonth(); // 0-11
+        const day = d.getDate();
+
+        // If transaction date is after statement cut-off date, it belongs to NEXT month's statement
+        if (stmtDay && day > stmtDay) {
+            const nextDate = new Date(year, month + 1, 1);
+            const ny = nextDate.getFullYear();
+            const nm = String(nextDate.getMonth() + 1).padStart(2, '0');
+            return `${ny}-${nm}`;
+        }
+
+        // Otherwise it belongs to current calendar month
+        const cm = String(month + 1).padStart(2, '0');
+        return `${year}-${cm}`;
     },
     
     // Format date as YYYY-MM for month inputs

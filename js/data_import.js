@@ -15,7 +15,7 @@ window.DataImport = {
             templateCols = 'Card Zoho Ledger Name, Statement Month (YYYY-MM), Opening Balance, Billed Amount, Unbilled Amount, Credits/Payments, Closing Outstanding, Minimum Due, Due Date (YYYY-MM-DD), Payment Status';
         } else if (type === 'transactions') {
             title = 'Import Transactions';
-            templateCols = 'Card Zoho Ledger Name, Date (YYYY-MM-DD), Zoho Ledger (Counterparty), Description, Type (Debit/Credit), Amount, Category';
+            templateCols = 'Card Zoho Ledger Name, Date (YYYY-MM-DD), Statement Month (YYYY-MM), Zoho Ledger (Counterparty), Description, Type (Debit/Credit), Amount, Category';
         } else if (type === 'payments') {
             title = 'Import Payments';
             templateCols = 'Card Zoho Ledger Name, Statement Month (YYYY-MM), Payment Date (YYYY-MM-DD), Amount, Payment Mode, Reference No, Status';
@@ -69,8 +69,8 @@ window.DataImport = {
             ws = XLSX.utils.aoa_to_sheet(data);
         } else if (this.currentType === 'transactions') {
             const data = [
-                ["Card Zoho Ledger Name", "Date (YYYY-MM-DD)", "Zoho Ledger (Counterparty)", "Description", "Type (Debit/Credit)", "Amount", "Category"],
-                ["Arvind HDFC CC", "2026-04-15", "Amazon India", "Amazon Purchase", "Debit", 1250.50, "Shopping"]
+                ["Card Zoho Ledger Name", "Date (YYYY-MM-DD)", "Statement Month (YYYY-MM)", "Zoho Ledger (Counterparty)", "Description", "Type (Debit/Credit)", "Amount", "Category"],
+                ["Arvind HDFC CC", "2026-04-15", "2026-04", "Amazon India", "Amazon Purchase", "Debit", 1250.50, "Shopping"]
             ];
             ws = XLSX.utils.aoa_to_sheet(data);
         } else if (this.currentType === 'payments') {
@@ -213,7 +213,15 @@ window.DataImport = {
                     record.payment_status = row["Payment Status"] || "Pending";
                 } else if (this.currentType === 'transactions') {
                     let dStr = row["Date (YYYY-MM-DD)"] || row["Date"];
-                    record.txn_date = String(dStr); 
+                    record.txn_date = String(dStr);
+                    const smRaw = row["Statement Month (YYYY-MM)"] || row["Statement Month"] || row["Stmt Month"] || row["Billing Month"] || row["Statement Period"] || row["Billing Cycle"] || row["Statement"];
+                    if (smRaw && String(smRaw).trim() !== '') {
+                        record.statement_month = window.Utils.normalizeStatementMonth(smRaw);
+                    } else if (matchedCard && dStr) {
+                        record.statement_month = window.Utils.calculateStatementMonth(dStr, matchedCard, existingStatements);
+                    } else {
+                        record.statement_month = null;
+                    }
                     record.zoho_ledger = row["Zoho Ledger (Counterparty)"] || row["Zoho Ledger"] || "";
                     record.description = row["Description"] || "";
                     record.txn_type = row["Type (Debit/Credit)"] || row["Type"] || "Debit";

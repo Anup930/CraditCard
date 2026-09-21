@@ -92,6 +92,7 @@ var DB = {
             const stored = await CryptoStore.load('ccms_cache');
             if (stored && stored.data && Array.isArray(stored.data.credit_cards)) {
                 this.data = stored.data;
+                this._normalizeDataset();
                 this._lastSynced = stored.lastSynced || null;
                 this._isLoaded = true;
                 console.log('[DB] Loaded instant dataset from AES-GCM Encrypted Storage (<10ms):', {
@@ -127,6 +128,7 @@ var DB = {
     // ── DATA NORMALIZATION ─────────────────────────────────────
 
     _normalizeDataset() {
+        const cardsMap = new Map();
         this.data.credit_cards.forEach(c => {
             c.card_id           = parseInt(c.card_id) || 0;
             c.credit_limit      = Utils.parseNum(c.credit_limit);
@@ -134,12 +136,12 @@ var DB = {
             c.reward_points     = Utils.parseNum(c.reward_points);
             c.statement_date    = c.statement_date ? parseInt(c.statement_date) : null;
             c.due_date          = c.due_date ? parseInt(c.due_date) : null;
+            cardsMap.set(String(c.card_id), c);
+            if (c.zoho_ledger_name) {
+                cardsMap.set(String(c.zoho_ledger_name).toLowerCase().trim(), c);
+            }
         });
-        this.data.transactions.forEach(t => {
-            t.txn_id  = parseInt(t.txn_id) || 0;
-            t.amount  = Utils.parseNum(t.amount);
-            t.card_id = parseInt(t.card_id) || null;
-        });
+
         this.data.statements.forEach(s => {
             s.statement_id        = parseInt(s.statement_id) || 0;
             s.card_id             = parseInt(s.card_id) || 0;
@@ -150,6 +152,41 @@ var DB = {
             s.closing_outstanding = Utils.parseNum(s.closing_outstanding);
             s.minimum_due         = Utils.parseNum(s.minimum_due);
         });
+
+        this.data.transactions.forEach(t => {
+            t.txn_id  = parseInt(t.txn_id) || 0;
+            t.amount  = Utils.parseNum(t.amount);
+            t.card_id = parseInt(t.card_id) || null;
+
+            if (!t.card_id && t.zoho_ledger) {
+                const matched = cardsMap.get(String(t.zoho_ledger).toLowerCase().trim());
+                if (matched) t.card_id = matched.card_id;
+            }
+
+            const card = t.card_id ? cardsMap.get(String(t.card_id)) : null;
+
+            // Check any variation of statement_month key from sheets/imports
+            let explicitMonth = null;
+            for (const key of Object.keys(t)) {
+                if (/^(statement[\s_-]*month|stmt[\s_-]*month|billing[\s_-]*month)$/i.test(key)) {
+                    if (t[key] !== undefined && t[key] !== null && String(t[key]).trim() !== '') {
+                        explicitMonth = String(t[key]).trim();
+                        break;
+                    }
+                }
+            }
+
+            if (explicitMonth) {
+                // User provided value in the column: use it directly!
+                t.statement_month = Utils.normalizeStatementMonth(explicitMonth);
+                t._statement_month_auto = false;
+            } else {
+                // Column is BLANK or not provided: auto-calculate from txn_date and card!
+                t.statement_month = Utils.calculateStatementMonth(t.txn_date, card, this.data.statements);
+                t._statement_month_auto = true;
+            }
+        });
+
         this.data.payments.forEach(p => {
             p.payment_id   = parseInt(p.payment_id) || 0;
             p.card_id      = parseInt(p.card_id) || 0;
@@ -493,6 +530,16 @@ var DB = {
             const tempId   = DB.nextId('transactions');
             txn.txn_id     = tempId;
             txn.amount     = Utils.parseNum(txn.amount);
+            
+            const card = txn.card_id ? DB.cards.getById(txn.card_id) : null;
+            const rawStmt = txn.statement_month || txn['Statement Month'] || txn['Statement_Month'] || txn['Stmt Month'];
+            if (rawStmt && String(rawStmt).trim() !== '') {
+                txn.statement_month = Utils.normalizeStatementMonth(rawStmt);
+                txn._statement_month_auto = false;
+            } else {
+                txn.statement_month = Utils.calculateStatementMonth(txn.txn_date, card, DB.data.statements);
+                txn._statement_month_auto = true;
+            }
             txn.created_at = Utils.now();
 
             // Optimistic update
@@ -534,10 +581,22 @@ var DB = {
                 }
 
                 const card = DB.data.credit_cards.find(c => c.zoho_ledger_name === r.zoho_ledger);
+                const rawStmt = r.statement_month || r['Statement Month'] || r['Statement_Month'] || r['Stmt Month'];
+                let finalStmtMonth = null;
+                let isAuto = false;
+                if (rawStmt && String(rawStmt).trim() !== '') {
+                    finalStmtMonth = Utils.normalizeStatementMonth(rawStmt);
+                } else {
+                    finalStmtMonth = Utils.calculateStatementMonth(r.txn_date, card, DB.data.statements);
+                    isAuto = true;
+                }
+
                 const txn  = {
                     txn_id:          DB.nextId('transactions') + toInsert.length,
                     card_id:         card ? card.card_id : null,
                     txn_date:        r.txn_date,
+                    statement_month: finalStmtMonth,
+                    _statement_month_auto: isAuto,
                     zoho_ledger:     r.zoho_ledger || '',
                     description:     r.description || '',
                     txn_type:        r.txn_type || 'Debit',

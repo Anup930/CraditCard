@@ -166,6 +166,7 @@ window.Transactions = {
                 <thead class="table-light">
                     <tr>
                         <th>Date</th>
+                        <th>Stmt Month</th>
                         <th>Ledger</th>
                         <th>Description</th>
                         <th>Type</th>
@@ -180,15 +181,26 @@ window.Transactions = {
         `;
 
         if(currentData.length === 0) {
-            html += `<tr><td colspan="9" class="text-center py-4 empty-state">No transactions match filters.</td></tr>`;
+            html += `<tr><td colspan="10" class="text-center py-4 empty-state">No transactions match filters.</td></tr>`;
         } else {
             currentData.forEach(t => {
                 const typeClass = t.txn_type === 'Credit' ? 'bg-success' : 'bg-danger';
                 const amtColor = t.txn_type === 'Credit' ? 'text-success' : 'text-danger';
+                let stmtMonthBadge = '';
+                if (t.statement_month) {
+                    if (t._statement_month_auto) {
+                        stmtMonthBadge = `<span class="badge bg-light text-primary border" title="Auto-calculated from card statement cycle" style="font-weight:600;"><i class="fas fa-calculator me-1"></i>${window.Utils.formatMonthYear(t.statement_month)}</span>`;
+                    } else {
+                        stmtMonthBadge = `<span class="badge bg-light text-primary border" title="Explicit from Statement Month column" style="font-weight:600;"><i class="fas fa-calendar-check me-1"></i>${window.Utils.formatMonthYear(t.statement_month)}</span>`;
+                    }
+                } else {
+                    stmtMonthBadge = `<span class="badge bg-light text-muted border" title="Derived from Txn Date">${window.Utils.formatMonthYear(t.txn_date)}</span>`;
+                }
                 
                 html += `
                     <tr>
                         <td>${window.Utils.formatDate(t.txn_date)}</td>
+                        <td>${stmtMonthBadge}</td>
                         <td>${window.Utils.escapeHtml(t.zoho_ledger || '')}</td>
                         <td title="${window.Utils.escapeHtml(t.description || '')}">${window.Utils.truncate(t.description || '', 40)}</td>
                         <td><span class="badge ${typeClass}">${t.txn_type}</span></td>
@@ -264,10 +276,11 @@ window.Transactions = {
             <div class="row">
                 <div class="col-md-6 mb-2"><strong>Transaction ID:</strong> ${txn.txn_id}</div>
                 <div class="col-md-6 mb-2"><strong>Date:</strong> ${window.Utils.formatDate(txn.txn_date)}</div>
+                <div class="col-md-6 mb-2"><strong>Statement Month:</strong> <span class="badge bg-light text-primary border">${txn.statement_month ? window.Utils.formatMonthYear(txn.statement_month) : 'Auto (' + window.Utils.formatMonthYear(txn.txn_date) + ')'}</span></div>
                 <div class="col-md-6 mb-2"><strong>Type:</strong> <span class="badge ${txn.txn_type==='Credit'?'bg-success':'bg-danger'}">${txn.txn_type}</span></div>
                 <div class="col-md-6 mb-2"><strong>Amount:</strong> <span class="fw-bold ${txn.txn_type==='Credit'?'text-success':'text-danger'}">${window.Utils.formatCurrency(txn.amount)}</span></div>
-                <div class="col-md-12 mb-2"><strong>Card:</strong> ${cardStr}</div>
                 <div class="col-md-6 mb-2"><strong>Ledger Name:</strong> ${txn.zoho_ledger}</div>
+                <div class="col-md-12 mb-2"><strong>Card:</strong> ${cardStr}</div>
                 <div class="col-md-6 mb-2"><strong>Category:</strong> ${txn.category || ''}</div>
                 <div class="col-md-6 mb-2"><strong>Import Batch ID:</strong> ${txn.import_batch_id || ''}</div>
                 <div class="col-md-6 mb-2"><strong>Status:</strong> ${txn.status}</div>
@@ -286,6 +299,7 @@ window.Transactions = {
             const card = allCards.find(c => c.card_id === t.card_id);
             return {
                 Date: window.Utils.formatDate(t.txn_date),
+                'Statement Month': t.statement_month ? window.Utils.formatMonthYear(t.statement_month) : window.Utils.formatMonthYear(t.txn_date),
                 Cardholder: card ? card.cardholder_name : 'Unmapped',
                 Bank: card ? card.bank_name : '',
                 'Card Last4': card ? card.card_last4 : '',

@@ -83,6 +83,13 @@ window.Import = {
                 <div class="row mb-4">
                     <div class="col-md-6">
                         <div class="form-group mb-2"><label>Date Column</label><select class="form-select" id="map_date">${this.getOptions(headers, 'date')}</select></div>
+                        <div class="form-group mb-2">
+                            <label>Statement Month Column <span class="badge bg-primary ms-1" style="font-size:0.7rem;">For Reconciliation</span></label>
+                            <select class="form-select" id="map_stmt_month">
+                                <option value="">-- Optional: Auto-detect from Date --</option>
+                                ${this.getOptions(headers, 'statement.*month|stmt.*month|billing.*month|statement_month|statement.*period|billing.*cycle|month')}
+                            </select>
+                        </div>
                         <div class="form-group mb-2"><label>Ledger/Account Column</label><select class="form-select" id="map_ledger">${this.getOptions(headers, 'ledger|account|name')}</select></div>
                         <div class="form-group mb-2"><label>Description/Details</label><select class="form-select" id="map_desc">${this.getOptions(headers, 'desc|detail|narration')}</select></div>
                     </div>
@@ -130,6 +137,7 @@ window.Import = {
                         <thead class="table-light sticky-top">
                             <tr>
                                 <th>Date</th>
+                                <th>Stmt Month</th>
                                 <th>Ledger</th>
                                 <th>Mapped Card</th>
                                 <th>Description</th>
@@ -145,6 +153,7 @@ window.Import = {
                                 return `
                                 <tr class="${trClass}">
                                     <td>${window.Utils.formatDate(row.txn_date)}</td>
+                                    <td><span class="badge ${row.statement_month ? 'bg-primary' : 'bg-light text-dark border'}">${row.statement_month ? window.Utils.formatMonthYear(row.statement_month) : 'Auto (Date)'}</span></td>
                                     <td>${window.Utils.escapeHtml(row.zoho_ledger || '')}</td>
                                     <td>${row.card_id ? 'Yes' : '<span class="text-danger">No Match</span>'}</td>
                                     <td>${window.Utils.escapeHtml(row.description || '')}</td>
@@ -213,6 +222,8 @@ window.Import = {
 
     processMapping: function() {
         const mDate = document.getElementById('map_date').value;
+        const mStmtMonthEl = document.getElementById('map_stmt_month');
+        const mStmtMonth = mStmtMonthEl ? mStmtMonthEl.value : '';
         const mLedger = document.getElementById('map_ledger').value;
         const mDesc = document.getElementById('map_desc').value;
         const mAmount = document.getElementById('map_amount').value;
@@ -276,8 +287,17 @@ window.Import = {
                 }
             }
 
+            let stmtMonth = null;
+            if (mStmtMonth && row[mStmtMonth] && String(row[mStmtMonth]).trim() !== '') {
+                stmtMonth = window.Utils.normalizeStatementMonth(row[mStmtMonth]);
+            } else if (parsedDate) {
+                const card = cardId ? window.DB.cards.getById(cardId) : null;
+                stmtMonth = window.Utils.calculateStatementMonth(parsedDate, card, window.DB.statements.getAll());
+            }
+
             const record = {
                 txn_date: parsedDate,
+                statement_month: stmtMonth,
                 zoho_ledger: ledgerName,
                 description: row[mDesc] || '',
                 amount: amount,

@@ -1584,9 +1584,12 @@ exportCurrentReport: function() {
                     const stmtBilled = window.Utils.parseNum(s.billed_amount);
                     totalStatementAmount += stmtBilled;
 
-                    // Match Zoho transactions falling around statement month
+                    // Match Zoho transactions falling around statement month (priority to explicit statement_month)
                     const mStr = window.Utils.formatMonthYear(s.statement_month);
-                    const matchedTxns = cTxns.filter(t => window.Utils.formatMonthYear(t.txn_date) === mStr);
+                    const matchedTxns = cTxns.filter(t => {
+                        if (t.statement_month) return window.Utils.formatMonthYear(t.statement_month) === mStr;
+                        return window.Utils.formatMonthYear(t.txn_date) === mStr;
+                    });
                     const zohoSum = matchedTxns.reduce((sum, t) => sum + window.Utils.parseNum(t.amount), 0);
                     totalZohoAmount += zohoSum;
 
@@ -1642,7 +1645,10 @@ exportCurrentReport: function() {
                     totalStatementAmount += stmtUnbilled;
 
                     // Current unbilled Zoho transactions
-                    const unbilledTxns = cTxns.filter(t => new Date(t.txn_date) > new Date(s.statement_month));
+                    const unbilledTxns = cTxns.filter(t => {
+                        const tMonth = t.statement_month ? new Date(t.statement_month) : new Date(t.txn_date);
+                        return tMonth > new Date(s.statement_month);
+                    });
                     const zohoUnbilledSum = unbilledTxns.reduce((sum, t) => sum + window.Utils.parseNum(t.amount), 0);
                     totalZohoAmount += zohoUnbilledSum;
 
@@ -1930,7 +1936,10 @@ exportCurrentReport: function() {
             cStmts.forEach(s => {
                 const stmtBilled = window.Utils.parseNum(s.billed_amount);
                 const mStr = window.Utils.formatMonthYear(s.statement_month);
-                const matchedTxns = cTxns.filter(t => window.Utils.formatMonthYear(t.txn_date) === mStr);
+                const matchedTxns = cTxns.filter(t => {
+                    if (t.statement_month) return window.Utils.formatMonthYear(t.statement_month) === mStr;
+                    return window.Utils.formatMonthYear(t.txn_date) === mStr;
+                });
                 const zohoSum = matchedTxns.reduce((sum, t) => sum + window.Utils.parseNum(t.amount), 0);
                 const diff = zohoSum - stmtBilled;
                 let status = 'Matched';
