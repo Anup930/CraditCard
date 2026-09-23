@@ -728,15 +728,33 @@ var DB = {
             // In-place update
             DB.data.payments.unshift(pmt);
 
-            // Also automatically mark statement as Paid / update credits if linked
+            // Also automatically update statement outstanding, credits, and status if linked
             if (pmt.statement_id) {
                 const stmt = DB.data.statements.find(s => String(s.statement_id) === String(pmt.statement_id));
                 if (stmt) {
-                    stmt.credits_payments = (Utils.parseNum(stmt.credits_payments) || 0) + pmt.amount;
-                    if (stmt.credits_payments >= stmt.closing_outstanding) {
-                        stmt.payment_status = 'Paid';
-                    } else if (stmt.credits_payments > 0) {
-                        stmt.payment_status = 'Partial';
+                    const currentCredits = Utils.parseNum(stmt.credits_payments) || 0;
+                    const updatedCredits = currentCredits + Utils.parseNum(pmt.amount);
+                    const totalDue = (Utils.parseNum(stmt.opening_balance) || 0) + (Utils.parseNum(stmt.billed_amount) || 0);
+                    const updatedOutstanding = Math.max(0, totalDue - updatedCredits);
+                    const updatedStatus = updatedOutstanding === 0 ? 'Paid' : (updatedCredits > 0 ? 'Partial' : stmt.payment_status);
+
+                    stmt.credits_payments = updatedCredits;
+                    stmt.closing_outstanding = updatedOutstanding;
+                    stmt.payment_status = updatedStatus;
+
+                    try {
+                        await DB.apiPost({
+                            action: 'update',
+                            sheet: 'statements',
+                            id: stmt.statement_id,
+                            data: {
+                                credits_payments: updatedCredits,
+                                closing_outstanding: updatedOutstanding,
+                                payment_status: updatedStatus
+                            }
+                        });
+                    } catch(err) {
+                        console.error('[DB] Cloud statement sync failed:', err);
                     }
                 }
             }

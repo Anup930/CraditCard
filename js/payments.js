@@ -898,10 +898,13 @@ window.Payments = {
         const allStmts = window.DB.statements.getAll() || [];
         
         let stmtOptions = '<option value="">-- Independent Payment --</option>';
+        let defaultDue = '';
         if(preCardId) {
             const cardStmts = allStmts.filter(s => String(s.card_id) === String(preCardId) && s.payment_status !== 'Paid');
             cardStmts.forEach(s => {
-                stmtOptions += `<option value="${s.statement_id}" ${String(s.statement_id) === String(preStmtId) ? 'selected' : ''}>${window.Utils.formatMonthYear(s.statement_month)} (Due: ${window.Utils.formatCurrency(s.closing_outstanding)})</option>`;
+                const isSelected = String(s.statement_id) === String(preStmtId);
+                if (isSelected) defaultDue = s.closing_outstanding;
+                stmtOptions += `<option value="${s.statement_id}" data-due="${s.closing_outstanding}" ${isSelected ? 'selected' : ''}>${window.Utils.formatMonthYear(s.statement_month)} (Due: ${window.Utils.formatCurrency(s.closing_outstanding)})</option>`;
             });
         }
 
@@ -917,7 +920,7 @@ window.Payments = {
                     </div>
                     <div class="col-md-6 form-group">
                         <label class="form-label">Select Statement (Optional)</label>
-                        <select class="form-select" id="fp_stmt">
+                        <select class="form-select" id="fp_stmt" onchange="window.Payments.onStmtSelect(this)">
                             ${stmtOptions}
                         </select>
                     </div>
@@ -929,7 +932,7 @@ window.Payments = {
                     </div>
                     <div class="col-md-6 form-group">
                         <label class="form-label">Amount Paid</label>
-                        <input type="number" step="0.01" class="form-control" id="fp_amount" required>
+                        <input type="number" step="0.01" class="form-control" id="fp_amount" value="${defaultDue !== '' ? defaultDue : ''}" required>
                     </div>
                 </div>
                 <div class="row form-row mb-3">
@@ -959,6 +962,15 @@ window.Payments = {
         setTimeout(() => { window.Utils.makeSearchable('fp_card'); }, 50);
     },
 
+    onStmtSelect: function(selectEl) {
+        const selected = selectEl.options[selectEl.selectedIndex];
+        const due = selected ? selected.getAttribute('data-due') : null;
+        const amtInput = document.getElementById('fp_amount');
+        if (due && amtInput) {
+            amtInput.value = parseFloat(due) || '';
+        }
+    },
+
     updateStmtDropdown: function(cardId) {
         const stmtSelect = document.getElementById('fp_stmt');
         if(!stmtSelect) return;
@@ -967,7 +979,7 @@ window.Payments = {
         
         let html = '<option value="">-- Independent Payment --</option>';
         cardStmts.forEach(s => {
-            html += `<option value="${s.statement_id}">${window.Utils.formatMonthYear(s.statement_month)} (Due: ${s.closing_outstanding})</option>`;
+            html += `<option value="${s.statement_id}" data-due="${s.closing_outstanding}">${window.Utils.formatMonthYear(s.statement_month)} (Due: ${window.Utils.formatCurrency(s.closing_outstanding)})</option>`;
         });
         stmtSelect.innerHTML = html;
     },
@@ -987,21 +999,6 @@ window.Payments = {
         if(window.App) window.App.showToast('Recording payment...', 'info');
 
         await window.DB.payments.add(data);
-
-        // Auto-update statement outstanding
-        if(data.statement_id) {
-            const s = window.DB.data.statements.find(x => String(x.statement_id) === String(data.statement_id));
-            if(s) {
-                const updatedCredits = (parseFloat(s.credits_payments)||0) + data.amount;
-                const updatedOutstanding = Math.max(0, (parseFloat(s.opening_balance)||0) + (parseFloat(s.billed_amount)||0) - updatedCredits);
-                const updatedStatus = updatedOutstanding === 0 ? 'Paid' : updatedCredits > 0 ? 'Partial' : s.payment_status;
-                await window.DB.statements.update(s.statement_id, {
-                    credits_payments:    updatedCredits,
-                    closing_outstanding: updatedOutstanding,
-                    payment_status:      updatedStatus
-                });
-            }
-        }
 
         if(window.App) window.App.showToast('Payment recorded successfully', 'success');
         this.renderTabContent();
