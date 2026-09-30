@@ -572,8 +572,8 @@
                     <i class="fas fa-check-double"></i>
                 </div>
                 <div class="stat-info">
-                    <h3>9 / 9</h3>
-                    <p>Total Issues Resolved</p>
+                    <h3>11 / 11</h3>
+                    <p>Total Updates Deployed</p>
                 </div>
             </div>
 
@@ -589,11 +589,11 @@
 
             <div class="stat-card">
                 <div class="stat-icon blue">
-                    <i class="fas fa-layer-group"></i>
+                    <i class="fas fa-filter"></i>
                 </div>
                 <div class="stat-info">
-                    <h3>6 Features</h3>
-                    <p>Drill-Downs &amp; Reports Added</p>
+                    <h3>8 Features</h3>
+                    <p>Filters, Reports &amp; Drill-Downs</p>
                 </div>
             </div>
 
@@ -611,9 +611,9 @@
         <!-- TOOLBAR: FILTER TABS & SEARCH -->
         <div class="toolbar">
             <div class="filter-tabs">
-                <button class="tab-btn active" onclick="filterItems('all', this)">All Updates (9)</button>
+                <button class="tab-btn active" onclick="filterItems('all', this)">All Updates (11)</button>
                 <button class="tab-btn" onclick="filterItems('defect', this)">Critical Data Fixes (2)</button>
-                <button class="tab-btn" onclick="filterItems('enhancement', this)">Reports &amp; Drill-Downs (6)</button>
+                <button class="tab-btn" onclick="filterItems('enhancement', this)">Reports, Filters &amp; Drill-Downs (8)</button>
                 <button class="tab-btn" onclick="filterItems('security', this)">Security &amp; 0ms Engine (1)</button>
             </div>
 
@@ -973,6 +973,72 @@
                 </div>
             </article>
 
+            <!-- ITEM 11 -->
+            <article class="issue-card" data-category="enhancement" data-keywords="reports filter live search cardholder bank category utilization status aging fee waiver export 16 reports">
+                <div class="issue-header">
+                    <div class="issue-title-wrap">
+                        <span class="issue-num">CORE #11</span>
+                        <h2 class="issue-title">Universal Real-Time Interactive Filters Across All 16 Reports</h2>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span class="badge-pill badge-enhancement"><i class="fas fa-filter"></i> Major Upgrade</span>
+                        <span class="badge-status"><i class="fas fa-check"></i> 100% Active</span>
+                    </div>
+                </div>
+                <div class="issue-body">
+                    <div class="box-query">
+                        <div class="box-query-title"><i class="fas fa-question-circle"></i> Kya Requirement Tha (Client Query)</div>
+                        <p class="box-desc">
+                            "Jitne bhi reports hai unsab me filter add karo ta ki user data filtered report dekh paye. Har report ke hisab se specific filters hone chahiye aur live filtering milni chahiye bina page reload kiye."
+                        </p>
+                    </div>
+                    <div class="box-fix">
+                        <div class="box-fix-title"><i class="fas fa-wrench"></i> Kya Feature Add Kiya Hai (Real-Time Filter Architecture)</div>
+                        <p class="box-desc">
+                            Humne <strong>Reports Hub ke sabhi 16 Reports</strong> me context-aware live filter toolbar add kiya hai:
+                        </p>
+                        <div style="margin-top:10px; display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:10px; font-size:12.5px;">
+                            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px;">
+                                <strong style="color:#1e293b;"><i class="fas fa-search" style="color:#6366f1;"></i> Instant Live Search:</strong>
+                                <p style="margin:4px 0 0 0; color:#475569;">Sabhi 16 tables me dynamic search bar jo cardholder name, card number, bank, category ya vendor type karte hi instant filter karta hai.</p>
+                            </div>
+                            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px;">
+                                <strong style="color:#1e293b;"><i class="fas fa-user-check" style="color:#0ea5e9;"></i> Cardholder &amp; Bank Dropdown:</strong>
+                                <p style="margin:4px 0 0 0; color:#475569;">Outstanding, Limit Utilization, Fees, Due Aging, aur Cardholder-wise sabhi me dedicated Cardholder &amp; Bank selector.</p>
+                            </div>
+                            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px;">
+                                <strong style="color:#1e293b;"><i class="fas fa-tags" style="color:#ec4899;"></i> Category &amp; Spend Range:</strong>
+                                <p style="margin:4px 0 0 0; color:#475569;">Category Spend, Card-wise Spend, Vendor Analysis me Category dropdown aur Minimum Spend Amount slider/input filter.</p>
+                            </div>
+                            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px;">
+                                <strong style="color:#1e293b;"><i class="fas fa-tachometer-alt" style="color:#f59e0b;"></i> Limit Utilization Risk Tier:</strong>
+                                <p style="margin:4px 0 0 0; color:#475569;">High Risk (&gt;80%), Medium Risk (30-80%), Safe (&lt;30%) pills se instantly filter karein.</p>
+                            </div>
+                            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px;">
+                                <strong style="color:#1e293b;"><i class="fas fa-calendar-alt" style="color:#10b981;"></i> Payment Due Horizon:</strong>
+                                <p style="margin:4px 0 0 0; color:#475569;">Today, Tomorrow, 3 Days, 7 Days, 15 Days, Overdue quick filter pills + Status filter (Unpaid vs Settled).</p>
+                            </div>
+                            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px;">
+                                <strong style="color:#1e293b;"><i class="fas fa-trophy" style="color:#8b5cf6;"></i> Fee Waiver Status Filter:</strong>
+                                <p style="margin:4px 0 0 0; color:#475569;">Achieved (100%), In Progress, At Risk (&lt;50%), Near Target (80-99%) me direct segmented view.</p>
+                            </div>
+                            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px;">
+                                <strong style="color:#1e293b;"><i class="fas fa-sort-amount-down" style="color:#06b6d4;"></i> Dynamic Sorting &amp; Reset:</strong>
+                                <p style="margin:4px 0 0 0; color:#475569;">Amount Highest/Lowest, Name A-Z, Date Newest/Oldest sort options + 1-Click "Reset All Filters" button.</p>
+                            </div>
+                            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px;">
+                                <strong style="color:#1e293b;"><i class="fas fa-file-excel" style="color:#16a34a;"></i> Filter-Synced Excel Export:</strong>
+                                <p style="margin:4px 0 0 0; color:#475569;">Export to Excel button ab user ke actively filtered view ko hi export karta hai (full dataset ke bajaye jo screen pe filter kiya hai wahi Excel me download hota hai).</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="box-verify">
+                        <span class="verify-label"><i class="fas fa-compass"></i> Kaise Check Karein:</span>
+                        <span class="verify-path">Sidebar &rarr; Click "Reports Hub" &rarr; Select any of the 16 Reports &rarr; Look at the interactive Filter Bar at the top of the report table!</span>
+                    </div>
+                </div>
+            </article>
+
         </section>
 
     </main>
@@ -980,7 +1046,7 @@
     <!-- FOOTER -->
     <footer>
         <p>Gretex Group &copy; 2026 &bull; Credit Card Management System (CCMS) Enterprise v2.1</p>
-        <p style="margin-top:4px; opacity:0.7;">Author: Gourav Harlalka &bull; All 8 Client Queries &amp; Security Enhancements Deployed &amp; Active</p>
+        <p style="margin-top:4px; opacity:0.7;">Author: Gourav Harlalka &bull; All 11 Client Queries, Reports &amp; Interactive Filters Deployed &amp; Active</p>
     </footer>
 
     <!-- INTERACTIVE SCRIPT: 15-MINUTE COUNTDOWN & AUTO-CLOSE -->
