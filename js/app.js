@@ -453,10 +453,8 @@ document.addEventListener('keydown', (e) => {
 
 // Boot: show login screen, or auto-resume session
 document.addEventListener('DOMContentLoaded', async () => {
-    // Show system update overlay on every refresh (auto-closes in 15 mins or upon click)
-    if (window.App && typeof window.App.showUpdateModal === 'function') {
-        window.App.showUpdateModal();
-    }
+    // System update overlay auto-popup disabled by default per user request.
+    // Available on-demand via top navbar "Updates" button.
 
     if (Auth.checkSession()) {
         // Initialize AES-GCM encryption key for resumed session

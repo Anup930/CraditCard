@@ -98,12 +98,33 @@ window.Reports = {
         }, 100);
     },
 
+    refreshCurrentReport: function() {
+        const dataDiv = document.getElementById('rc-data');
+        if (dataDiv && this.currentReportId) {
+            this.generateReportData(this.currentReportId, dataDiv);
+        }
+    },
+
+    handleSearchInput: function(inputId, propName, val) {
+        this[propName] = val;
+        this.refreshCurrentReport();
+        setTimeout(() => {
+            const el = document.getElementById(inputId);
+            if (el) {
+                el.focus();
+                const len = el.value.length;
+                el.setSelectionRange(len, len);
+            }
+        }, 30);
+    },
+
     generateReportData: function(id, container) {
         this.exportData = [];
         let html = '';
         const cards = window.DB.cards.getAll() || [];
         const txns = window.DB.transactions.getAll() || [];
         const stmts = window.DB.statements.getAll() || [];
+        const Utils = window.Utils;
         
         // Helper to setup chart layout
         const setChartLayout = (canvasId) => {
@@ -123,80 +144,185 @@ window.Reports = {
             return;
         }
         else if(id === 'sole_owner') {
-            this.soleOwnerFilter = this.soleOwnerFilter || 'All';
-            const owners = window.DB.cards.getOwners();
-            
-            // Prepare Chart Data
+            this.soleOwnerCategory = this.soleOwnerCategory || this.soleOwnerFilter || 'All';
+            this.soleOwnerOwner = this.soleOwnerOwner || 'all';
+            this.soleOwnerBank = this.soleOwnerBank || 'all';
+            this.soleOwnerSearch = this.soleOwnerSearch || '';
+
+            const allOwners = window.DB.cards.getOwners();
+            const allBanks = window.DB.cards.getBanks();
+
+            // Filter cards
+            let filteredCards = cards.filter(c => {
+                if (this.soleOwnerCategory !== 'All' && (c.card_category || 'Primary') !== this.soleOwnerCategory) return false;
+                if (this.soleOwnerOwner !== 'all' && c.primary_cardholder !== this.soleOwnerOwner) return false;
+                if (this.soleOwnerBank !== 'all' && c.bank_name !== this.soleOwnerBank) return false;
+                if (this.soleOwnerSearch) {
+                    const q = this.soleOwnerSearch.toLowerCase();
+                    const match = (c.cardholder_name || '').toLowerCase().includes(q) ||
+                                  (c.primary_cardholder || '').toLowerCase().includes(q) ||
+                                  (c.bank_name || '').toLowerCase().includes(q) ||
+                                  (c.card_last4 || '').includes(q);
+                    if (!match) return false;
+                }
+                return true;
+            });
+
+            // Group filtered cards by owner
+            const filteredOwners = [...new Set(filteredCards.map(c => c.primary_cardholder || 'Unknown'))].sort();
+
             const chartLabels = [];
             const chartData = [];
-            
-            html += setChartLayout('chart_owner');
 
-            // Category Filter per Item 03
-            html += `
-                <div class="d-flex justify-content-between align-items-center mb-3 p-3 bg-light rounded border">
-                    <div class="d-flex align-items-center gap-2">
-                        <label class="fw-bold small mb-0"><i class="fas fa-filter text-primary me-1"></i> Filter Card Category:</label>
-                        <select class="form-select form-select-sm" style="width: 180px; font-weight: 600;" onchange="window.Reports.setSoleOwnerFilter(this.value)">
-                            <option value="All" ${this.soleOwnerFilter === 'All' ? 'selected' : ''}>All Cards</option>
-                            <option value="Primary" ${this.soleOwnerFilter === 'Primary' ? 'selected' : ''}>Primary Cards Only</option>
-                            <option value="Add-on" ${this.soleOwnerFilter === 'Add-on' ? 'selected' : ''}>Add-on Cards Only</option>
-                        </select>
-                    </div>
-                    <span class="badge bg-secondary">Showing: ${this.soleOwnerFilter} Cards</span>
-                </div>
-            `;
-            
-            html += `<div class="card data-table-wrapper table-responsive"><table class="table data-table table-hover mb-0">`;
-            owners.forEach(owner => {
-                let oCards = cards.filter(c => c.primary_cardholder === owner);
-                if (this.soleOwnerFilter !== 'All') {
-                    oCards = oCards.filter(c => (c.card_category || 'Primary') === this.soleOwnerFilter);
-                }
-                if (oCards.length === 0) return;
-
-                const limit = oCards.reduce((sum, c) => sum + (c.credit_limit||0), 0);
-                
+            filteredOwners.forEach(owner => {
+                const oCards = filteredCards.filter(c => (c.primary_cardholder || 'Unknown') === owner);
+                const limit = oCards.reduce((sum, c) => sum + (c.credit_limit || 0), 0);
                 chartLabels.push(owner);
                 chartData.push(limit);
-
-                html += `<tr class="table-light"><th colspan="7">Owner: ${owner} (${oCards.length} Card${oCards.length > 1 ? 's' : ''} | Total Limit: ${window.Utils.formatCurrency(limit)})</th></tr>`;
-                html += `<tr><th>Cardholder</th><th>Category</th><th>Bank</th><th>Card Type</th><th>Last4</th><th class="text-right">Limit</th><th>Status</th></tr>`;
-                oCards.forEach(c => {
-                    const catBadge = c.card_category === 'Primary' 
-                        ? '<span class="badge bg-primary">Primary</span>' 
-                        : '<span class="badge" style="background:#e0e7ff;color:#4338ca;">Add-on</span>';
-                    html += `<tr>
-                        <td><strong>${c.cardholder_name}</strong></td>
-                        <td>${catBadge}</td>
-                        <td>${c.bank_name}</td>
-                        <td>${c.card_type}</td>
-                        <td><code>*${c.card_last4}</code></td>
-                        <td class="text-right">${window.Utils.formatCurrency(c.credit_limit)}</td>
-                        <td><span class="badge bg-success">${c.status}</span></td>
-                    </tr>`;
-                    this.exportData.push({ Owner: owner, Cardholder: c.cardholder_name, Category: c.card_category || 'Primary', Bank: c.bank_name, Type: c.card_type, Last4: c.card_last4, Limit: c.credit_limit, Status: c.status });
-                });
             });
+
+            html += setChartLayout('chart_owner');
+
+            const isFiltered = this.soleOwnerCategory !== 'All' || this.soleOwnerOwner !== 'all' || this.soleOwnerBank !== 'all' || this.soleOwnerSearch !== '';
+
+            html += `
+                <div class="table-toolbar" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:18px;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <span style="font-size:0.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">
+                            <i class="fas fa-filter text-primary me-1"></i> Filter By:
+                        </span>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.soleOwnerCategory=this.value; Reports.refreshCurrentReport();">
+                            <option value="All" ${this.soleOwnerCategory === 'All' ? 'selected' : ''}>All Categories</option>
+                            <option value="Primary" ${this.soleOwnerCategory === 'Primary' ? 'selected' : ''}>Primary Cards</option>
+                            <option value="Add-on" ${this.soleOwnerCategory === 'Add-on' ? 'selected' : ''}>Add-on Cards</option>
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.soleOwnerOwner=this.value; Reports.refreshCurrentReport();">
+                            <option value="all" ${this.soleOwnerOwner === 'all' ? 'selected' : ''}>All Owners</option>
+                            ${allOwners.map(o => `<option value="${o}" ${this.soleOwnerOwner === o ? 'selected' : ''}>${o}</option>`).join('')}
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.soleOwnerBank=this.value; Reports.refreshCurrentReport();">
+                            <option value="all" ${this.soleOwnerBank === 'all' ? 'selected' : ''}>All Banks</option>
+                            ${allBanks.map(b => `<option value="${b}" ${this.soleOwnerBank === b ? 'selected' : ''}>${b}</option>`).join('')}
+                        </select>
+                        <input type="text" id="sole-owner-search" class="form-control form-control-sm" placeholder="Search cardholder, last4..." value="${this.soleOwnerSearch}" style="width:190px;border-radius:8px;" oninput="Reports.handleSearchInput('sole-owner-search', 'soleOwnerSearch', this.value);">
+                        ${isFiltered ? `<button class="btn btn-sm btn-outline-secondary" style="border-radius:8px;" onclick="Reports.soleOwnerCategory='All'; Reports.soleOwnerOwner='all'; Reports.soleOwnerBank='all'; Reports.soleOwnerSearch=''; Reports.refreshCurrentReport();"><i class="fas fa-undo me-1"></i>Reset</button>` : ''}
+                    </div>
+                    <span class="badge" style="background:#f1f5f9;color:#475569;font-weight:600;font-size:0.8rem;padding:6px 12px;border-radius:20px;border:1px solid #e2e8f0;">Showing ${filteredCards.length} of ${cards.length} cards</span>
+                </div>
+            `;
+
+            html += `<div class="card data-table-wrapper table-responsive"><table class="table data-table table-hover mb-0">`;
+            if (filteredCards.length === 0) {
+                html += `<tr><td colspan="7" class="text-center py-5 text-muted"><i class="fas fa-search me-2"></i>No cards found matching the selected filters.</td></tr>`;
+            } else {
+                filteredOwners.forEach(owner => {
+                    const oCards = filteredCards.filter(c => (c.primary_cardholder || 'Unknown') === owner);
+                    if (oCards.length === 0) return;
+                    const limit = oCards.reduce((sum, c) => sum + (c.credit_limit||0), 0);
+
+                    html += `<tr class="table-light"><th colspan="7">Owner: ${owner} (${oCards.length} Card${oCards.length > 1 ? 's' : ''} | Total Limit: ${window.Utils.formatCurrency(limit)})</th></tr>`;
+                    html += `<tr><th>Cardholder</th><th>Category</th><th>Bank</th><th>Card Type</th><th>Last4</th><th class="text-right">Limit</th><th>Status</th></tr>`;
+                    oCards.forEach(c => {
+                        const catBadge = c.card_category === 'Primary' 
+                            ? '<span class="badge bg-primary">Primary</span>' 
+                            : '<span class="badge" style="background:#e0e7ff;color:#4338ca;">Add-on</span>';
+                        html += `<tr>
+                            <td><strong>${c.cardholder_name}</strong></td>
+                            <td>${catBadge}</td>
+                            <td>${c.bank_name}</td>
+                            <td>${c.card_type}</td>
+                            <td><code>*${c.card_last4}</code></td>
+                            <td class="text-right">${window.Utils.formatCurrency(c.credit_limit)}</td>
+                            <td><span class="badge bg-success">${c.status}</span></td>
+                        </tr>`;
+                        this.exportData.push({ Owner: owner, Cardholder: c.cardholder_name, Category: c.card_category || 'Primary', Bank: c.bank_name, Type: c.card_type, Last4: c.card_last4, Limit: c.credit_limit, Status: c.status });
+                    });
+                });
+            }
             html += `</table></div>`;
             
             container.innerHTML = html;
             this.renderChart('chart_owner', 'bar', chartLabels, chartData, 'Total Limit by Owner');
         }
         else if (id === 'kpi_report') {
-            const kpis = window.DB.getKPIs();
+            this.kpiOwnerFilter = this.kpiOwnerFilter || 'all';
+            this.kpiCategoryFilter = this.kpiCategoryFilter || 'all';
+            this.kpiBankFilter = this.kpiBankFilter || 'all';
+
+            const allOwners = window.DB.cards.getOwners();
+            const allBanks = window.DB.cards.getBanks();
+
+            let filteredCards = cards.filter(c => {
+                if (this.kpiOwnerFilter !== 'all' && c.primary_cardholder !== this.kpiOwnerFilter) return false;
+                if (this.kpiCategoryFilter !== 'all' && (c.card_category || 'Primary') !== this.kpiCategoryFilter) return false;
+                if (this.kpiBankFilter !== 'all' && c.bank_name !== this.kpiBankFilter) return false;
+                return true;
+            });
+
+            const targetCardIds = filteredCards.map(c => String(c.card_id));
+            const filteredStmts = stmts.filter(s => targetCardIds.includes(String(s.card_id)));
+            const filteredTxns = txns.filter(t => targetCardIds.includes(String(t.card_id)));
+            const unbilledRecords = (window.DB.unbilled.getAll() || []).filter(u => targetCardIds.includes(String(u.card_id)) && (u.status || 'Unbilled') === 'Unbilled');
+
+            const totalPayable = filteredStmts.filter(s => s.payment_status !== 'Paid').reduce((s, x) => s + (x.closing_outstanding || 0), 0);
+            const totalUnbilled = unbilledRecords.reduce((s, x) => s + (Utils.parseNum(x.amount) || 0), 0);
+            const totalRewards = filteredCards.reduce((s, c) => s + (c.reward_points || 0), 0);
+            const totalCards = filteredCards.length;
+            const primaryCards = filteredCards.filter(c => (c.card_category || 'Primary') === 'Primary').length;
+            const totalLimit = filteredCards.reduce((s, c) => s + (c.credit_limit || 0), 0);
+            let usedLimit = 0;
+            filteredCards.forEach(c => {
+                const m = window.DB.cards.getCardLimitMetrics(c.card_id);
+                usedLimit += (m.used || 0);
+            });
+            const availableLimit = Math.max(0, totalLimit - usedLimit);
+            const feeWaiverBalance = filteredCards.reduce((sum, c) => {
+                const target = Utils.parseNum(c.fee_waiver_target) || 0;
+                if (target <= 0) return sum;
+                const spent = filteredTxns.filter(t => String(t.card_id) === String(c.card_id) && t.txn_type === 'Debit').reduce((s, t) => s + Utils.parseNum(t.amount), 0);
+                return sum + Math.max(0, target - spent);
+            }, 0);
+
             html += setChartLayout('chart_kpi');
+
+            const isFiltered = this.kpiOwnerFilter !== 'all' || this.kpiCategoryFilter !== 'all' || this.kpiBankFilter !== 'all';
+
+            html += `
+                <div class="table-toolbar" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:18px;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <span style="font-size:0.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">
+                            <i class="fas fa-filter text-primary me-1"></i> Filter KPI Scope:
+                        </span>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.kpiOwnerFilter=this.value; Reports.refreshCurrentReport();">
+                            <option value="all" ${this.kpiOwnerFilter === 'all' ? 'selected' : ''}>All Owners</option>
+                            ${allOwners.map(o => `<option value="${o}" ${this.kpiOwnerFilter === o ? 'selected' : ''}>${o}</option>`).join('')}
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.kpiCategoryFilter=this.value; Reports.refreshCurrentReport();">
+                            <option value="all" ${this.kpiCategoryFilter === 'all' ? 'selected' : ''}>All Categories</option>
+                            <option value="Primary" ${this.kpiCategoryFilter === 'Primary' ? 'selected' : ''}>Primary Cards</option>
+                            <option value="Add-on" ${this.kpiCategoryFilter === 'Add-on' ? 'selected' : ''}>Add-on Cards</option>
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.kpiBankFilter=this.value; Reports.refreshCurrentReport();">
+                            <option value="all" ${this.kpiBankFilter === 'all' ? 'selected' : ''}>All Banks</option>
+                            ${allBanks.map(b => `<option value="${b}" ${this.kpiBankFilter === b ? 'selected' : ''}>${b}</option>`).join('')}
+                        </select>
+                        ${isFiltered ? `<button class="btn btn-sm btn-outline-secondary" style="border-radius:8px;" onclick="Reports.kpiOwnerFilter='all'; Reports.kpiCategoryFilter='all'; Reports.kpiBankFilter='all'; Reports.refreshCurrentReport();"><i class="fas fa-undo me-1"></i>Reset</button>` : ''}
+                    </div>
+                    <span class="badge" style="background:#f1f5f9;color:#475569;font-weight:600;font-size:0.8rem;padding:6px 12px;border-radius:20px;border:1px solid #e2e8f0;">Scope: ${filteredCards.length} of ${cards.length} cards</span>
+                </div>
+            `;
+
             html += `<div class="card data-table-wrapper table-responsive"><table class="table data-table table-striped mb-0"><tbody>`;
             const m = [
-                ['Total Payable (Statements)', window.Utils.formatCurrency(kpis.totalPayable)],
-                ['Unbilled Amount (Records)', window.Utils.formatCurrency(kpis.totalUnbilled)],
-                ['Total Rewards', kpis.totalRewards],
-                ['Total Cards', kpis.totalCards],
-                ['Primary Cards', kpis.primaryCards],
-                ['Total Limit', window.Utils.formatCurrency(kpis.totalLimit)],
-                ['Used Limit', window.Utils.formatCurrency(kpis.usedLimit)],
-                ['Available Limit', window.Utils.formatCurrency(kpis.availableLimit)],
-                ['Fee Waiver Balance', window.Utils.formatCurrency(kpis.feeWaiverBalance)]
+                ['Total Payable (Statements)', window.Utils.formatCurrency(totalPayable)],
+                ['Unbilled Amount (Pending Records)', window.Utils.formatCurrency(totalUnbilled)],
+                ['Total Rewards', totalRewards],
+                ['Total Cards in Scope', totalCards],
+                ['Primary Cards in Scope', primaryCards],
+                ['Total Credit Limit', window.Utils.formatCurrency(totalLimit)],
+                ['Used Limit', window.Utils.formatCurrency(usedLimit)],
+                ['Available Limit', window.Utils.formatCurrency(availableLimit)],
+                ['Fee Waiver Balance Needed', window.Utils.formatCurrency(feeWaiverBalance)]
             ];
             m.forEach(r => {
                 html += `<tr><th>${r[0]}</th><td class="text-right fw-bold">${r[1]}</td></tr>`;
@@ -205,42 +331,132 @@ window.Reports = {
             html += `</tbody></table></div>`;
             container.innerHTML = html;
             
-            this.renderChart('chart_kpi', 'doughnut', ['Used Limit', 'Available Limit'], [kpis.usedLimit, kpis.availableLimit], 'Credit Limit Utilization', ['#ef476f', '#06d6a0']);
+            this.renderChart('chart_kpi', 'doughnut', ['Used Limit', 'Available Limit'], [usedLimit, availableLimit], 'Credit Limit Utilization', ['#ef476f', '#06d6a0']);
         }
         else if (id === 'limit_used') {
+            this.limitBankFilter = this.limitBankFilter || 'all';
+            this.limitCategoryFilter = this.limitCategoryFilter || 'all';
+            this.limitUtilFilter = this.limitUtilFilter || 'all';
+            this.limitSearch = this.limitSearch || '';
+            this.limitSort = this.limitSort || 'util_desc';
+
+            const allBanks = window.DB.cards.getBanks();
+
+            let list = cards.map(c => {
+                const m = window.DB.cards.getCardLimitMetrics(c.card_id);
+                return {
+                    card: c,
+                    name: c.cardholder_name,
+                    last4: c.card_last4,
+                    category: c.card_category || 'Primary',
+                    bank: c.bank_name,
+                    limit: m.limit,
+                    used: m.used,
+                    available: m.available,
+                    util: m.util
+                };
+            });
+
+            // Filtering
+            if (this.limitBankFilter !== 'all') {
+                list = list.filter(x => x.bank === this.limitBankFilter);
+            }
+            if (this.limitCategoryFilter !== 'all') {
+                list = list.filter(x => x.category === this.limitCategoryFilter);
+            }
+            if (this.limitUtilFilter === 'critical') {
+                list = list.filter(x => x.util > 80);
+            } else if (this.limitUtilFilter === 'warning') {
+                list = list.filter(x => x.util >= 50 && x.util <= 80);
+            } else if (this.limitUtilFilter === 'safe') {
+                list = list.filter(x => x.util < 50);
+            }
+            if (this.limitSearch) {
+                const q = this.limitSearch.toLowerCase();
+                list = list.filter(x => (x.name || '').toLowerCase().includes(q) || (x.last4 || '').includes(q) || (x.bank || '').toLowerCase().includes(q));
+            }
+
+            // Sorting
+            if (this.limitSort === 'util_desc') {
+                list.sort((a, b) => b.util - a.util);
+            } else if (this.limitSort === 'limit_desc') {
+                list.sort((a, b) => b.limit - a.limit);
+            } else if (this.limitSort === 'used_desc') {
+                list.sort((a, b) => b.used - a.used);
+            } else if (this.limitSort === 'name_asc') {
+                list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+            }
+
             html += setChartLayout('chart_limit');
+
+            const isFiltered = this.limitBankFilter !== 'all' || this.limitCategoryFilter !== 'all' || this.limitUtilFilter !== 'all' || this.limitSearch !== '' || this.limitSort !== 'util_desc';
+
+            html += `
+                <div class="table-toolbar" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:18px;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <span style="font-size:0.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">
+                            <i class="fas fa-filter text-primary me-1"></i> Filter By:
+                        </span>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.limitBankFilter=this.value; Reports.refreshCurrentReport();">
+                            <option value="all" ${this.limitBankFilter === 'all' ? 'selected' : ''}>All Banks</option>
+                            ${allBanks.map(b => `<option value="${b}" ${this.limitBankFilter === b ? 'selected' : ''}>${b}</option>`).join('')}
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.limitCategoryFilter=this.value; Reports.refreshCurrentReport();">
+                            <option value="all" ${this.limitCategoryFilter === 'all' ? 'selected' : ''}>All Categories</option>
+                            <option value="Primary" ${this.limitCategoryFilter === 'Primary' ? 'selected' : ''}>Primary Cards</option>
+                            <option value="Add-on" ${this.limitCategoryFilter === 'Add-on' ? 'selected' : ''}>Add-on Cards</option>
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.limitUtilFilter=this.value; Reports.refreshCurrentReport();">
+                            <option value="all" ${this.limitUtilFilter === 'all' ? 'selected' : ''}>All Utilizations</option>
+                            <option value="critical" ${this.limitUtilFilter === 'critical' ? 'selected' : ''}>Critical (>80%)</option>
+                            <option value="warning" ${this.limitUtilFilter === 'warning' ? 'selected' : ''}>Warning (50-80%)</option>
+                            <option value="safe" ${this.limitUtilFilter === 'safe' ? 'selected' : ''}>Safe (&lt;50%)</option>
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.limitSort=this.value; Reports.refreshCurrentReport();">
+                            <option value="util_desc" ${this.limitSort === 'util_desc' ? 'selected' : ''}>Sort: Highest Util %</option>
+                            <option value="used_desc" ${this.limitSort === 'used_desc' ? 'selected' : ''}>Sort: Highest Used</option>
+                            <option value="limit_desc" ${this.limitSort === 'limit_desc' ? 'selected' : ''}>Sort: Highest Limit</option>
+                            <option value="name_asc" ${this.limitSort === 'name_asc' ? 'selected' : ''}>Sort: Cardholder A-Z</option>
+                        </select>
+                        <input type="text" id="limit-search" class="form-control form-control-sm" placeholder="Search cardholder, last4..." value="${this.limitSearch}" style="width:180px;border-radius:8px;" oninput="Reports.handleSearchInput('limit-search', 'limitSearch', this.value);">
+                        ${isFiltered ? `<button class="btn btn-sm btn-outline-secondary" style="border-radius:8px;" onclick="Reports.limitBankFilter='all'; Reports.limitCategoryFilter='all'; Reports.limitUtilFilter='all'; Reports.limitSearch=''; Reports.limitSort='util_desc'; Reports.refreshCurrentReport();"><i class="fas fa-undo me-1"></i>Reset</button>` : ''}
+                    </div>
+                    <span class="badge" style="background:#f1f5f9;color:#475569;font-weight:600;font-size:0.8rem;padding:6px 12px;border-radius:20px;border:1px solid #e2e8f0;">Showing ${list.length} of ${cards.length} cards</span>
+                </div>
+            `;
+
             html += `<div class="card data-table-wrapper table-responsive"><table class="table data-table table-hover mb-0"><thead><tr class="table-light"><th>Card</th><th>Category</th><th>Bank</th><th class="text-right">Total Limit</th><th class="text-right">Used Limit</th><th class="text-right">Available Limit</th><th class="text-right">Util %</th></tr></thead><tbody>`;
-            
+
             let chartLabels = [];
             let chartUsed = [];
             let chartAvail = [];
-            
-            // Recompute dynamically on every import tying to transaction & statement spend (Item 04)
-            cards.forEach(c => {
-                const m = window.DB.cards.getCardLimitMetrics(c.card_id);
-                const clz = m.util > 80 ? 'text-danger fw-bold' : (m.util > 50 ? 'text-warning fw-bold' : '');
-                
-                if (c.card_category === 'Primary' || m.limit > 0) {
-                    chartLabels.push(c.cardholder_name + ' (*' + c.card_last4 + ')');
-                    chartUsed.push(m.used);
-                    chartAvail.push(m.available);
-                }
 
-                const catBadge = c.card_category === 'Primary' 
+            list.forEach(c => {
+                const clz = c.util > 80 ? 'text-danger fw-bold' : (c.util >= 50 ? 'text-warning fw-bold' : '');
+                const catBadge = c.category === 'Primary' 
                     ? '<span class="badge bg-primary">Primary</span>' 
                     : '<span class="badge" style="background:#e0e7ff;color:#4338ca;">Add-on</span>';
 
+                chartLabels.push(c.name + ' (*' + c.last4 + ')');
+                chartUsed.push(c.used);
+                chartAvail.push(c.available);
+
                 html += `<tr>
-                    <td><strong>${c.cardholder_name}</strong> <small class="text-muted">(*${c.card_last4})</small></td>
+                    <td><strong>${c.name}</strong> <small class="text-muted">(*${c.last4})</small></td>
                     <td>${catBadge}</td>
-                    <td>${c.bank_name}</td>
-                    <td class="text-right fw-bold">${window.Utils.formatCurrency(m.limit)}</td>
-                    <td class="text-right ${clz}">${window.Utils.formatCurrency(m.used)}</td>
-                    <td class="text-right text-success fw-bold">${window.Utils.formatCurrency(m.available)}</td>
-                    <td class="text-right ${clz}">${m.util}%</td>
+                    <td>${c.bank}</td>
+                    <td class="text-right fw-bold">${window.Utils.formatCurrency(c.limit)}</td>
+                    <td class="text-right ${clz}">${window.Utils.formatCurrency(c.used)}</td>
+                    <td class="text-right text-success fw-bold">${window.Utils.formatCurrency(c.available)}</td>
+                    <td class="text-right ${clz}">${c.util}%</td>
                 </tr>`;
-                this.exportData.push({ Card: c.cardholder_name, Category: c.card_category, Bank: c.bank_name, Last4: c.card_last4, 'Total Limit': m.limit, 'Used Limit': m.used, 'Available Limit': m.available, 'Utilization %': m.util });
+                this.exportData.push({ Card: c.name, Category: c.category, Bank: c.bank, Last4: c.last4, 'Total Limit': c.limit, 'Used Limit': c.used, 'Available Limit': c.available, 'Utilization %': c.util });
             });
+
+            if (list.length === 0) {
+                html += `<tr><td colspan="7" class="text-center py-5 text-muted"><i class="fas fa-search me-2"></i>No cards found matching the selected filters.</td></tr>`;
+            }
+
             html += `</tbody></table></div>`;
             container.innerHTML = html;
             
@@ -249,103 +465,344 @@ window.Reports = {
                  {label: 'Available Limit', data: chartAvail.slice(0, 10), backgroundColor: '#06d6a0'}]);
         }
         else if (id === 'fee_waiver') {
+            this.feeWaiverBank = this.feeWaiverBank || 'all';
+            this.feeWaiverStatus = this.feeWaiverStatus || 'all';
+            this.feeWaiverSearch = this.feeWaiverSearch || '';
+            this.feeWaiverSort = this.feeWaiverSort || 'rem_desc';
+
+            const allBanks = window.DB.cards.getBanks();
+            const targetCards = cards.filter(c => (window.Utils.parseNum(c.fee_waiver_target) > 0));
+
+            let list = targetCards.map(c => {
+                const target = window.Utils.parseNum(c.fee_waiver_target) || 0;
+                const spent = txns.filter(t => String(t.card_id) === String(c.card_id) && t.txn_type === 'Debit')
+                                  .reduce((s, t) => s + (window.Utils.parseNum(t.amount) || 0), 0);
+                const rem = Math.max(0, target - spent);
+                const pct = target > 0 ? Math.min(100, Math.round((spent / target) * 100)) : 100;
+                return { card: c, name: c.cardholder_name, last4: c.card_last4, bank: c.bank_name, renewal: c.renewal_date, target: target, spent: spent, rem: rem, pct: pct, isAchieved: rem === 0 };
+            });
+
+            // Overall totals before filter
+            const grandTarget = list.reduce((s, x) => s + x.target, 0);
+            const grandSpent = list.reduce((s, x) => s + x.spent, 0);
+            const grandRem = list.reduce((s, x) => s + x.rem, 0);
+            const grandAchieved = list.filter(x => x.isAchieved).length;
+
+            // Apply Filters
+            if (this.feeWaiverBank !== 'all') {
+                list = list.filter(x => x.bank === this.feeWaiverBank);
+            }
+            if (this.feeWaiverStatus === 'achieved') {
+                list = list.filter(x => x.isAchieved);
+            } else if (this.feeWaiverStatus === 'pending') {
+                list = list.filter(x => !x.isAchieved);
+            }
+            if (this.feeWaiverSearch) {
+                const q = this.feeWaiverSearch.toLowerCase();
+                list = list.filter(x => (x.name || '').toLowerCase().includes(q) || (x.bank || '').toLowerCase().includes(q) || (x.last4 || '').includes(q));
+            }
+
+            // Sorting
+            if (this.feeWaiverSort === 'rem_desc') {
+                list.sort((a, b) => b.rem - a.rem);
+            } else if (this.feeWaiverSort === 'target_desc') {
+                list.sort((a, b) => b.target - a.target);
+            } else if (this.feeWaiverSort === 'spent_desc') {
+                list.sort((a, b) => b.spent - a.spent);
+            } else if (this.feeWaiverSort === 'name_asc') {
+                list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+            }
+
+            html += `
+                <div class="row g-3 mb-4">
+                    <div class="col-md-3">
+                        <div class="card p-3 border-0 shadow-sm" style="border-radius:12px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:#fff;">
+                            <div class="text-uppercase small fw-bold opacity-75">Total Target</div>
+                            <div class="fs-4 fw-bold mt-1">${window.Utils.formatCurrency(grandTarget)}</div>
+                            <div class="small opacity-75 mt-1">${targetCards.length} Cards with Targets</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card p-3 border-0 shadow-sm" style="border-radius:12px;background:linear-gradient(135deg,#10b981,#047857);color:#fff;">
+                            <div class="text-uppercase small fw-bold opacity-75">Total Spent</div>
+                            <div class="fs-4 fw-bold mt-1">${window.Utils.formatCurrency(grandSpent)}</div>
+                            <div class="small opacity-75 mt-1">${grandAchieved} Targets Achieved</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card p-3 border-0 shadow-sm" style="border-radius:12px;background:linear-gradient(135deg,#f59e0b,#b45309);color:#fff;">
+                            <div class="text-uppercase small fw-bold opacity-75">Pending Target</div>
+                            <div class="fs-4 fw-bold mt-1">${window.Utils.formatCurrency(grandRem)}</div>
+                            <div class="small opacity-75 mt-1">${list.filter(x => !x.isAchieved).length} In Progress</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card p-3 border-0 shadow-sm" style="border-radius:12px;background:linear-gradient(135deg,#8b5cf6,#6d28d9);color:#fff;">
+                            <div class="text-uppercase small fw-bold opacity-75">Overall Progress</div>
+                            <div class="fs-4 fw-bold mt-1">${grandTarget > 0 ? Math.round((grandSpent / grandTarget) * 100) : 0}%</div>
+                            <div class="small opacity-75 mt-1">Fee Waiver Completion</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
             html += setChartLayout('chart_fee');
-            html += `<div class="card data-table-wrapper table-responsive"><table class="table data-table mb-0"><thead><tr class="table-light"><th>Card</th><th>Bank</th><th>Renewal Date</th><th class="text-right">Target</th><th class="text-right">Spent</th><th class="text-right">Remaining</th></tr></thead><tbody>`;
-            
+
+            const isFiltered = this.feeWaiverBank !== 'all' || this.feeWaiverStatus !== 'all' || this.feeWaiverSearch !== '' || this.feeWaiverSort !== 'rem_desc';
+
+            html += `
+                <div class="table-toolbar" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:18px;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <span style="font-size:0.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">
+                            <i class="fas fa-filter text-primary me-1"></i> Filter By:
+                        </span>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.feeWaiverBank=this.value; Reports.refreshCurrentReport();">
+                            <option value="all" ${this.feeWaiverBank === 'all' ? 'selected' : ''}>All Banks</option>
+                            ${allBanks.map(b => `<option value="${b}" ${this.feeWaiverBank === b ? 'selected' : ''}>${b}</option>`).join('')}
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.feeWaiverStatus=this.value; Reports.refreshCurrentReport();">
+                            <option value="all" ${this.feeWaiverStatus === 'all' ? 'selected' : ''}>All Status</option>
+                            <option value="achieved" ${this.feeWaiverStatus === 'achieved' ? 'selected' : ''}>Target Achieved (100%)</option>
+                            <option value="pending" ${this.feeWaiverStatus === 'pending' ? 'selected' : ''}>Target In Progress</option>
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.feeWaiverSort=this.value; Reports.refreshCurrentReport();">
+                            <option value="rem_desc" ${this.feeWaiverSort === 'rem_desc' ? 'selected' : ''}>Sort: Highest Remaining</option>
+                            <option value="spent_desc" ${this.feeWaiverSort === 'spent_desc' ? 'selected' : ''}>Sort: Highest Spent</option>
+                            <option value="target_desc" ${this.feeWaiverSort === 'target_desc' ? 'selected' : ''}>Sort: Highest Target</option>
+                            <option value="name_asc" ${this.feeWaiverSort === 'name_asc' ? 'selected' : ''}>Sort: Cardholder A-Z</option>
+                        </select>
+                        <input type="text" id="fee-waiver-search" class="form-control form-control-sm" placeholder="Search card, bank..." value="${this.feeWaiverSearch}" style="width:180px;border-radius:8px;" oninput="Reports.handleSearchInput('fee-waiver-search', 'feeWaiverSearch', this.value);">
+                        ${isFiltered ? `<button class="btn btn-sm btn-outline-secondary" style="border-radius:8px;" onclick="Reports.feeWaiverBank='all'; Reports.feeWaiverStatus='all'; Reports.feeWaiverSearch=''; Reports.feeWaiverSort='rem_desc'; Reports.refreshCurrentReport();"><i class="fas fa-undo me-1"></i>Reset</button>` : ''}
+                    </div>
+                    <span class="badge" style="background:#f1f5f9;color:#475569;font-weight:600;font-size:0.8rem;padding:6px 12px;border-radius:20px;border:1px solid #e2e8f0;">Showing ${list.length} of ${targetCards.length} cards</span>
+                </div>
+            `;
+
+            html += `<div class="card data-table-wrapper table-responsive"><table class="table data-table mb-0"><thead><tr class="table-light"><th>Card</th><th>Bank</th><th>Renewal Date</th><th class="text-right">Target</th><th class="text-right">Spent</th><th class="text-right">Remaining</th><th class="text-center">Progress</th></tr></thead><tbody>`;
+
             let chartLabels = [];
             let chartSpent = [];
             let chartRem = [];
-            
-            cards.filter(c=>c.card_category==='Primary' && c.fee_waiver_target > 0).forEach(c => {
-                const spent = txns.filter(t => t.card_id === c.card_id && t.txn_type === 'Debit').reduce((s,t)=>s+t.amount,0);
-                const rem = Math.max(0, c.fee_waiver_target - spent);
-                const clz = rem > 0 ? 'text-danger' : 'text-success';
-                
-                chartLabels.push(c.cardholder_name);
-                chartSpent.push(spent);
-                chartRem.push(rem);
-                
-                html += `<tr><td>${c.cardholder_name}</td><td>${c.bank_name}</td><td>${window.Utils.formatDate(c.renewal_date)}</td><td class="text-right">${window.Utils.formatCurrency(c.fee_waiver_target)}</td><td class="text-right">${window.Utils.formatCurrency(spent)}</td><td class="text-right ${clz} fw-bold">${window.Utils.formatCurrency(rem)}</td></tr>`;
-                this.exportData.push({ Card: c.cardholder_name, Bank: c.bank_name, Renewal: window.Utils.formatDate(c.renewal_date), Target: c.fee_waiver_target, Spent: spent, Remaining: rem });
+
+            list.forEach(c => {
+                const clz = c.rem > 0 ? 'text-danger' : 'text-success';
+                const statusBadge = c.isAchieved 
+                    ? '<span class="badge bg-success"><i class="fas fa-check me-1"></i>Achieved</span>' 
+                    : `<span class="badge bg-warning text-dark">${c.pct}% Complete</span>`;
+
+                chartLabels.push(c.name);
+                chartSpent.push(c.spent);
+                chartRem.push(c.rem);
+
+                html += `<tr>
+                    <td><strong>${c.name}</strong> <small class="text-muted">(*${c.last4})</small></td>
+                    <td>${c.bank}</td>
+                    <td>${window.Utils.formatDate(c.renewal)}</td>
+                    <td class="text-right">${window.Utils.formatCurrency(c.target)}</td>
+                    <td class="text-right fw-semibold">${window.Utils.formatCurrency(c.spent)}</td>
+                    <td class="text-right ${clz} fw-bold">${window.Utils.formatCurrency(c.rem)}</td>
+                    <td class="text-center">${statusBadge}</td>
+                </tr>`;
+                this.exportData.push({ Card: c.name, Bank: c.bank, Last4: c.last4, Renewal: window.Utils.formatDate(c.renewal), Target: c.target, Spent: c.spent, Remaining: c.rem, 'Progress %': c.pct + '%' });
             });
+
+            if (list.length === 0) {
+                html += `<tr><td colspan="7" class="text-center py-5 text-muted"><i class="fas fa-search me-2"></i>No fee waiver targets found matching the selected filters.</td></tr>`;
+            }
+
             html += `</tbody></table></div>`;
             container.innerHTML = html;
-            
-            this.renderChartMulti('chart_fee', 'bar', chartLabels, 
-                [{label: 'Spent', data: chartSpent, backgroundColor: '#118ab2'}, 
-                 {label: 'Remaining Target', data: chartRem, backgroundColor: '#ffd166'}]);
+
+            this.renderChartMulti('chart_fee', 'bar', chartLabels.slice(0, 10), 
+                [{label: 'Spent', data: chartSpent.slice(0, 10), backgroundColor: '#118ab2'}, 
+                 {label: 'Remaining Target', data: chartRem.slice(0, 10), backgroundColor: '#ffd166'}]);
         }
         else if (id === 'data_hygiene') {
-            const hData = window.DB.getDataHygiene();
-            html += setChartLayout('chart_hygiene');
-            html += `<div class="card data-table-wrapper table-responsive"><table class="table data-table table-bordered mb-0"><thead><tr class="table-light"><th>Card</th><th>Bank</th><th class="text-center">Name</th><th class="text-center">Phone</th><th class="text-center">Email</th><th class="text-center">Limit</th><th class="text-center">Missing Count</th></tr></thead><tbody>`;
-            
-            let mName=0, mPhone=0, mEmail=0, mLimit=0;
-            hData.forEach(h => {
-                if(h.missing_name) mName++;
-                if(h.missing_phone) mPhone++;
-                if(h.missing_email) mEmail++;
-                if(h.missing_limit) mLimit++;
-                
-                const getIcon = (miss) => miss ? '<span class="text-danger"><i class="fas fa-times"></i></span>' : '<span class="text-success"><i class="fas fa-check"></i></span>';
-                html += `<tr><td>${h.cardholder_name} (*${h.card_last4})</td><td>${h.bank_name}</td><td class="text-center">${getIcon(h.missing_name)}</td><td class="text-center">${getIcon(h.missing_phone)}</td><td class="text-center">${getIcon(h.missing_email)}</td><td class="text-center">${getIcon(h.missing_limit)}</td><td class="text-center fw-bold text-danger">${h.total_missing}</td></tr>`;
-                this.exportData.push({ Card: h.cardholder_name, Bank: h.bank_name, MissingName: h.missing_name, MissingPhone: h.missing_phone, MissingEmail: h.missing_email, MissingLimit: h.missing_limit, TotalMissing: h.total_missing });
-            });
-            html += `</tbody></table></div>`;
-            container.innerHTML = html;
-            
-            this.renderChart('chart_hygiene', 'pie', ['Missing Name', 'Missing Phone', 'Missing Email', 'Missing Limit'], [mName, mPhone, mEmail, mLimit], 'Data Hygiene Issues');
+            this.renderHygiene(container);
+            return;
         }
         else if (id === 'bank_wise') {
-            const banks = window.DB.cards.getBanks();
+            this.bankWiseCategory = this.bankWiseCategory || 'all';
+            this.bankWiseSort = this.bankWiseSort || 'spent_desc';
+            this.bankWiseSearch = this.bankWiseSearch || '';
+
+            const allBanks = window.DB.cards.getBanks();
+
+            let bankList = allBanks.map(b => {
+                let bCards = cards.filter(c => c.bank_name === b);
+                if (this.bankWiseCategory !== 'all') {
+                    bCards = bCards.filter(c => (c.card_category || 'Primary') === this.bankWiseCategory);
+                }
+                const limit = bCards.reduce((s, c) => s + (c.credit_limit || 0), 0);
+                const cIds = bCards.map(c => c.card_id);
+                const spent = txns.filter(t => cIds.includes(t.card_id) && t.txn_type === 'Debit')
+                                  .reduce((s, t) => s + Utils.parseNum(t.amount), 0);
+                return { bank: b, cardsCount: bCards.length, limit: limit, spent: spent };
+            });
+
+            // Filter
+            if (this.bankWiseSearch) {
+                const q = this.bankWiseSearch.toLowerCase();
+                bankList = bankList.filter(x => x.bank.toLowerCase().includes(q));
+            }
+
+            // Sort
+            if (this.bankWiseSort === 'spent_desc') {
+                bankList.sort((a, b) => b.spent - a.spent);
+            } else if (this.bankWiseSort === 'limit_desc') {
+                bankList.sort((a, b) => b.limit - a.limit);
+            } else if (this.bankWiseSort === 'cards_desc') {
+                bankList.sort((a, b) => b.cardsCount - a.cardsCount);
+            } else if (this.bankWiseSort === 'name_asc') {
+                bankList.sort((a, b) => a.bank.localeCompare(b.bank));
+            }
+
             html += setChartLayout('chart_bank');
+
+            const isFiltered = this.bankWiseCategory !== 'all' || this.bankWiseSort !== 'spent_desc' || this.bankWiseSearch !== '';
+
+            html += `
+                <div class="table-toolbar" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:18px;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <span style="font-size:0.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">
+                            <i class="fas fa-filter text-primary me-1"></i> Filter By:
+                        </span>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.bankWiseCategory=this.value; Reports.refreshCurrentReport();">
+                            <option value="all" ${this.bankWiseCategory === 'all' ? 'selected' : ''}>All Card Categories</option>
+                            <option value="Primary" ${this.bankWiseCategory === 'Primary' ? 'selected' : ''}>Primary Cards Only</option>
+                            <option value="Add-on" ${this.bankWiseCategory === 'Add-on' ? 'selected' : ''}>Add-on Cards Only</option>
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.bankWiseSort=this.value; Reports.refreshCurrentReport();">
+                            <option value="spent_desc" ${this.bankWiseSort === 'spent_desc' ? 'selected' : ''}>Sort: Highest Spend</option>
+                            <option value="limit_desc" ${this.bankWiseSort === 'limit_desc' ? 'selected' : ''}>Sort: Highest Limit</option>
+                            <option value="cards_desc" ${this.bankWiseSort === 'cards_desc' ? 'selected' : ''}>Sort: Most Cards</option>
+                            <option value="name_asc" ${this.bankWiseSort === 'name_asc' ? 'selected' : ''}>Sort: Bank Name A-Z</option>
+                        </select>
+                        <input type="text" id="bank-wise-search" class="form-control form-control-sm" placeholder="Search bank name..." value="${this.bankWiseSearch}" style="width:180px;border-radius:8px;" oninput="Reports.handleSearchInput('bank-wise-search', 'bankWiseSearch', this.value);">
+                        ${isFiltered ? `<button class="btn btn-sm btn-outline-secondary" style="border-radius:8px;" onclick="Reports.bankWiseCategory='all'; Reports.bankWiseSort='spent_desc'; Reports.bankWiseSearch=''; Reports.refreshCurrentReport();"><i class="fas fa-undo me-1"></i>Reset</button>` : ''}
+                    </div>
+                    <span class="badge" style="background:#f1f5f9;color:#475569;font-weight:600;font-size:0.8rem;padding:6px 12px;border-radius:20px;border:1px solid #e2e8f0;">Showing ${bankList.length} of ${allBanks.length} banks</span>
+                </div>
+            `;
+
             html += `<div class="card data-table-wrapper table-responsive"><table class="table data-table table-hover mb-0"><thead><tr class="table-light"><th>Bank</th><th class="text-center">Card Count</th><th class="text-right">Total Limit</th><th class="text-right">Total Spent</th><th class="text-center">Action</th></tr></thead><tbody>`;
-            
+
             let chartLabels = [];
             let chartSpent = [];
-            
-            banks.forEach(b => {
-                const bCards = cards.filter(c => c.bank_name === b);
-                const limit = bCards.reduce((s,c)=>s+(c.credit_limit||0),0);
-                const cIds = bCards.map(c=>c.card_id);
-                const spent = txns.filter(t => cIds.includes(t.card_id) && t.txn_type==='Debit').reduce((s,t)=>s+Utils.parseNum(t.amount),0);
-                
-                chartLabels.push(b);
-                chartSpent.push(spent);
-                
-                html += `<tr style="cursor:pointer;" onclick="window.Reports.showBankCardsModal('${encodeURIComponent(b)}')" title="Click to view cards under ${b}">
-                    <td><strong>${b}</strong></td>
-                    <td class="text-center"><span class="badge bg-secondary">${bCards.length} Cards</span></td>
-                    <td class="text-right fw-bold">${window.Utils.formatCurrency(limit)}</td>
-                    <td class="text-right fw-bold text-danger">${window.Utils.formatCurrency(spent)}</td>
-                    <td class="text-center"><button class="btn btn-sm btn-outline-primary py-0" onclick="event.stopPropagation(); window.Reports.showBankCardsModal('${encodeURIComponent(b)}')"><i class="fas fa-credit-card me-1"></i> View Cards</button></td>
+
+            bankList.forEach(b => {
+                chartLabels.push(b.bank);
+                chartSpent.push(b.spent);
+
+                html += `<tr style="cursor:pointer;" onclick="window.Reports.showBankCardsModal('${encodeURIComponent(b.bank)}')" title="Click to view cards under ${b.bank}">
+                    <td><strong>${b.bank}</strong></td>
+                    <td class="text-center"><span class="badge bg-secondary">${b.cardsCount} Cards</span></td>
+                    <td class="text-right fw-bold">${window.Utils.formatCurrency(b.limit)}</td>
+                    <td class="text-right fw-bold text-danger">${window.Utils.formatCurrency(b.spent)}</td>
+                    <td class="text-center"><button class="btn btn-sm btn-outline-primary py-0" onclick="event.stopPropagation(); window.Reports.showBankCardsModal('${encodeURIComponent(b.bank)}')"><i class="fas fa-credit-card me-1"></i> View Cards</button></td>
                 </tr>`;
-                this.exportData.push({ Bank: b, 'Card Count': bCards.length, 'Total Limit': limit, 'Total Spent': spent });
+                this.exportData.push({ Bank: b.bank, 'Card Count': b.cardsCount, 'Total Limit': b.limit, 'Total Spent': b.spent });
             });
+
+            if (bankList.length === 0) {
+                html += `<tr><td colspan="5" class="text-center py-5 text-muted"><i class="fas fa-search me-2"></i>No banks found matching the selected filters.</td></tr>`;
+            }
+
             html += `</tbody></table></div>`;
             container.innerHTML = html;
             
             this.renderChart('chart_bank', 'doughnut', chartLabels, chartSpent, 'Spend by Bank');
         }
         else if (id === 'card_txn') {
-            html += setChartLayout('chart_card_txn');
-            html += `<div class="card data-table-wrapper table-responsive"><table class="table data-table table-hover mb-0"><thead><tr class="table-light"><th>Card</th><th>Category</th><th>Bank</th><th class="text-center">Txn Count</th><th class="text-right">Total Spend</th><th class="text-center">Action</th></tr></thead><tbody>`;
-            
+            this.cardTxnBank = this.cardTxnBank || 'all';
+            this.cardTxnCategory = this.cardTxnCategory || 'all';
+            this.cardTxnActivity = this.cardTxnActivity || 'all';
+            this.cardTxnSearch = this.cardTxnSearch || '';
+            this.cardTxnSort = this.cardTxnSort || 'spent_desc';
+
+            const allBanks = window.DB.cards.getBanks();
+
             let cardStats = [];
             cards.forEach(c => {
                 const cTxns = txns.filter(t => String(t.card_id) === String(c.card_id) && t.txn_type === 'Debit');
                 const spent = cTxns.reduce((s,t)=>s+Utils.parseNum(t.amount),0);
                 cardStats.push({ card_id: c.card_id, name: c.cardholder_name, last4: c.card_last4, category: c.card_category || 'Primary', bank: c.bank_name, count: cTxns.length, spent: spent });
             });
-            cardStats.sort((a,b) => b.spent - a.spent); // Sort top spenders
-            
+
+            // Filter
+            if (this.cardTxnBank !== 'all') {
+                cardStats = cardStats.filter(c => c.bank === this.cardTxnBank);
+            }
+            if (this.cardTxnCategory !== 'all') {
+                cardStats = cardStats.filter(c => c.category === this.cardTxnCategory);
+            }
+            if (this.cardTxnActivity === 'active') {
+                cardStats = cardStats.filter(c => c.spent > 0);
+            } else if (this.cardTxnActivity === 'zero') {
+                cardStats = cardStats.filter(c => c.spent === 0);
+            }
+            if (this.cardTxnSearch) {
+                const q = this.cardTxnSearch.toLowerCase();
+                cardStats = cardStats.filter(c => (c.name || '').toLowerCase().includes(q) || (c.last4 || '').includes(q) || (c.bank || '').toLowerCase().includes(q));
+            }
+
+            // Sort
+            if (this.cardTxnSort === 'spent_desc') {
+                cardStats.sort((a,b) => b.spent - a.spent);
+            } else if (this.cardTxnSort === 'spent_asc') {
+                cardStats.sort((a,b) => a.spent - b.spent);
+            } else if (this.cardTxnSort === 'count_desc') {
+                cardStats.sort((a,b) => b.count - a.count);
+            } else if (this.cardTxnSort === 'name_asc') {
+                cardStats.sort((a,b) => (a.name || '').localeCompare(b.name || ''));
+            }
+
+            html += setChartLayout('chart_card_txn');
+
+            const isFiltered = this.cardTxnBank !== 'all' || this.cardTxnCategory !== 'all' || this.cardTxnActivity !== 'all' || this.cardTxnSearch !== '' || this.cardTxnSort !== 'spent_desc';
+
+            html += `
+                <div class="table-toolbar" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:18px;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <span style="font-size:0.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">
+                            <i class="fas fa-filter text-primary me-1"></i> Filter By:
+                        </span>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.cardTxnBank=this.value; Reports.refreshCurrentReport();">
+                            <option value="all" ${this.cardTxnBank === 'all' ? 'selected' : ''}>All Banks</option>
+                            ${allBanks.map(b => `<option value="${b}" ${this.cardTxnBank === b ? 'selected' : ''}>${b}</option>`).join('')}
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.cardTxnCategory=this.value; Reports.refreshCurrentReport();">
+                            <option value="all" ${this.cardTxnCategory === 'all' ? 'selected' : ''}>All Categories</option>
+                            <option value="Primary" ${this.cardTxnCategory === 'Primary' ? 'selected' : ''}>Primary Cards</option>
+                            <option value="Add-on" ${this.cardTxnCategory === 'Add-on' ? 'selected' : ''}>Add-on Cards</option>
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.cardTxnActivity=this.value; Reports.refreshCurrentReport();">
+                            <option value="all" ${this.cardTxnActivity === 'all' ? 'selected' : ''}>All Activity</option>
+                            <option value="active" ${this.cardTxnActivity === 'active' ? 'selected' : ''}>Active Spends (> ₹0)</option>
+                            <option value="zero" ${this.cardTxnActivity === 'zero' ? 'selected' : ''}>Zero Spends (₹0)</option>
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.cardTxnSort=this.value; Reports.refreshCurrentReport();">
+                            <option value="spent_desc" ${this.cardTxnSort === 'spent_desc' ? 'selected' : ''}>Sort: Highest Spend</option>
+                            <option value="count_desc" ${this.cardTxnSort === 'count_desc' ? 'selected' : ''}>Sort: Most Transactions</option>
+                            <option value="spent_asc" ${this.cardTxnSort === 'spent_asc' ? 'selected' : ''}>Sort: Lowest Spend</option>
+                            <option value="name_asc" ${this.cardTxnSort === 'name_asc' ? 'selected' : ''}>Sort: Cardholder A-Z</option>
+                        </select>
+                        <input type="text" id="card-txn-search" class="form-control form-control-sm" placeholder="Search card, last4..." value="${this.cardTxnSearch}" style="width:180px;border-radius:8px;" oninput="Reports.handleSearchInput('card-txn-search', 'cardTxnSearch', this.value);">
+                        ${isFiltered ? `<button class="btn btn-sm btn-outline-secondary" style="border-radius:8px;" onclick="Reports.cardTxnBank='all'; Reports.cardTxnCategory='all'; Reports.cardTxnActivity='all'; Reports.cardTxnSearch=''; Reports.cardTxnSort='spent_desc'; Reports.refreshCurrentReport();"><i class="fas fa-undo me-1"></i>Reset</button>` : ''}
+                    </div>
+                    <span class="badge" style="background:#f1f5f9;color:#475569;font-weight:600;font-size:0.8rem;padding:6px 12px;border-radius:20px;border:1px solid #e2e8f0;">Showing ${cardStats.length} of ${cards.length} cards</span>
+                </div>
+            `;
+
+            html += `<div class="card data-table-wrapper table-responsive"><table class="table data-table table-hover mb-0"><thead><tr class="table-light"><th>Card</th><th>Category</th><th>Bank</th><th class="text-center">Txn Count</th><th class="text-right">Total Spend</th><th class="text-center">Action</th></tr></thead><tbody>`;
+
             let chartLabels = [];
             let chartData = [];
             cardStats.filter(c => c.count > 0).slice(0, 7).forEach(c => {
                 chartLabels.push(c.name + ' (*' + c.last4 + ')');
                 chartData.push(c.spent);
             });
-            
+
             cardStats.forEach(c => {
                 const catBadge = c.category === 'Primary' 
                     ? '<span class="badge bg-primary">Primary</span>' 
@@ -361,15 +818,21 @@ window.Reports = {
                 </tr>`;
                 this.exportData.push({ Card: c.name, Last4: c.last4, Category: c.category, Bank: c.bank, 'Txn Count': c.count, 'Total Spend': c.spent });
             });
+
+            if (cardStats.length === 0) {
+                html += `<tr><td colspan="6" class="text-center py-5 text-muted"><i class="fas fa-search me-2"></i>No card transactions found matching the selected filters.</td></tr>`;
+            }
+
             html += `</tbody></table></div>`;
             container.innerHTML = html;
             
-            this.renderChart('chart_card_txn', 'bar', chartLabels, chartData, 'Top 7 Cards by Spend');
+            this.renderChart('chart_card_txn', 'bar', chartLabels, chartData, 'Top Cards by Spend');
         }
         else if (id === 'cardholder_txn') {
-            html += setChartLayout('chart_holder');
-            html += `<div class="card data-table-wrapper table-responsive"><table class="table data-table table-hover mb-0"><thead><tr class="table-light"><th>Cardholder</th><th class="text-center">Cards Owned</th><th class="text-right">Total Limit</th><th class="text-right">Available Limit</th><th class="text-right">Total Spent</th><th class="text-center">Action</th></tr></thead><tbody>`;
-            
+            this.holderTxnActivity = this.holderTxnActivity || 'all';
+            this.holderTxnSearch = this.holderTxnSearch || '';
+            this.holderTxnSort = this.holderTxnSort || 'spent_desc';
+
             let holderStats = {};
             cards.forEach(c => {
                 const h = c.cardholder_name || 'Unknown';
@@ -388,46 +851,158 @@ window.Reports = {
                                   .reduce((s,t)=>s+Utils.parseNum(t.amount),0);
                 holderStats[h].spent += spent;
             });
-            
+
+            let list = Object.values(holderStats);
+            const totalHolders = list.length;
+
+            // Filter
+            if (this.holderTxnActivity === 'active') {
+                list = list.filter(h => h.spent > 0);
+            } else if (this.holderTxnActivity === 'zero') {
+                list = list.filter(h => h.spent === 0);
+            }
+            if (this.holderTxnSearch) {
+                const q = this.holderTxnSearch.toLowerCase();
+                list = list.filter(h => h.name.toLowerCase().includes(q));
+            }
+
+            // Sort
+            if (this.holderTxnSort === 'spent_desc') {
+                list.sort((a,b) => b.spent - a.spent);
+            } else if (this.holderTxnSort === 'limit_desc') {
+                list.sort((a,b) => b.totalLimit - a.totalLimit);
+            } else if (this.holderTxnSort === 'cards_desc') {
+                list.sort((a,b) => b.cardsCount - a.cardsCount);
+            } else if (this.holderTxnSort === 'name_asc') {
+                list.sort((a,b) => a.name.localeCompare(b.name));
+            }
+
+            html += setChartLayout('chart_holder');
+
+            const isFiltered = this.holderTxnActivity !== 'all' || this.holderTxnSearch !== '' || this.holderTxnSort !== 'spent_desc';
+
+            html += `
+                <div class="table-toolbar" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:18px;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:gap;gap:12px;">
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <span style="font-size:0.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">
+                            <i class="fas fa-filter text-primary me-1"></i> Filter By:
+                        </span>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.holderTxnActivity=this.value; Reports.refreshCurrentReport();">
+                            <option value="all" ${this.holderTxnActivity === 'all' ? 'selected' : ''}>All Cardholders</option>
+                            <option value="active" ${this.holderTxnActivity === 'active' ? 'selected' : ''}>With Spends (> ₹0)</option>
+                            <option value="zero" ${this.holderTxnActivity === 'zero' ? 'selected' : ''}>Zero Spends (₹0)</option>
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.holderTxnSort=this.value; Reports.refreshCurrentReport();">
+                            <option value="spent_desc" ${this.holderTxnSort === 'spent_desc' ? 'selected' : ''}>Sort: Highest Spend</option>
+                            <option value="limit_desc" ${this.holderTxnSort === 'limit_desc' ? 'selected' : ''}>Sort: Highest Limit</option>
+                            <option value="cards_desc" ${this.holderTxnSort === 'cards_desc' ? 'selected' : ''}>Sort: Most Cards</option>
+                            <option value="name_asc" ${this.holderTxnSort === 'name_asc' ? 'selected' : ''}>Sort: Cardholder A-Z</option>
+                        </select>
+                        <input type="text" id="holder-txn-search" class="form-control form-control-sm" placeholder="Search cardholder..." value="${this.holderTxnSearch}" style="width:180px;border-radius:8px;" oninput="Reports.handleSearchInput('holder-txn-search', 'holderTxnSearch', this.value);">
+                        ${isFiltered ? `<button class="btn btn-sm btn-outline-secondary" style="border-radius:8px;" onclick="Reports.holderTxnActivity='all'; Reports.holderTxnSearch=''; Reports.holderTxnSort='spent_desc'; Reports.refreshCurrentReport();"><i class="fas fa-undo me-1"></i>Reset</button>` : ''}
+                    </div>
+                    <span class="badge" style="background:#f1f5f9;color:#475569;font-weight:600;font-size:0.8rem;padding:6px 12px;border-radius:20px;border:1px solid #e2e8f0;">Showing ${list.length} of ${totalHolders} cardholders</span>
+                </div>
+            `;
+
+            html += `<div class="card data-table-wrapper table-responsive"><table class="table data-table table-hover mb-0"><thead><tr class="table-light"><th>Cardholder</th><th class="text-center">Cards Owned</th><th class="text-right">Total Limit</th><th class="text-right">Available Limit</th><th class="text-right">Total Spent</th><th class="text-center">Action</th></tr></thead><tbody>`;
+
             let chartLabels = [];
             let chartData = [];
-            Object.keys(holderStats).sort((a,b) => holderStats[b].spent - holderStats[a].spent).forEach(h => {
-                const stat = holderStats[h];
-                chartLabels.push(h);
+            list.forEach(stat => {
+                chartLabels.push(stat.name);
                 chartData.push(stat.spent);
-                html += `<tr style="cursor:pointer;" onclick="window.Reports.showCardholderDetailModal('${encodeURIComponent(h)}')" title="Click to view cardholder details for ${h}">
-                    <td><span class="text-primary fw-bold">${h}</span></td>
+                html += `<tr style="cursor:pointer;" onclick="window.Reports.showCardholderDetailModal('${encodeURIComponent(stat.name)}')" title="Click to view cardholder details for ${stat.name}">
+                    <td><span class="text-primary fw-bold">${stat.name}</span></td>
                     <td class="text-center">${stat.cardsCount}</td>
                     <td class="text-right fw-bold">${window.Utils.formatCurrency(stat.totalLimit)}</td>
                     <td class="text-right text-success fw-bold">${window.Utils.formatCurrency(stat.availableLimit)}</td>
                     <td class="text-right fw-bold text-danger">${window.Utils.formatCurrency(stat.spent)}</td>
-                    <td class="text-center"><button class="btn btn-sm btn-outline-primary py-0" onclick="event.stopPropagation(); window.Reports.showCardholderDetailModal('${encodeURIComponent(h)}')"><i class="fas fa-eye me-1"></i> Details</button></td>
+                    <td class="text-center"><button class="btn btn-sm btn-outline-primary py-0" onclick="event.stopPropagation(); window.Reports.showCardholderDetailModal('${encodeURIComponent(stat.name)}')"><i class="fas fa-eye me-1"></i> Details</button></td>
                 </tr>`;
-                this.exportData.push({ Cardholder: h, 'Cards Owned': stat.cardsCount, 'Total Limit': stat.totalLimit, 'Available Limit': stat.availableLimit, 'Total Spent': stat.spent });
+                this.exportData.push({ Cardholder: stat.name, 'Cards Owned': stat.cardsCount, 'Total Limit': stat.totalLimit, 'Available Limit': stat.availableLimit, 'Total Spent': stat.spent });
             });
+
+            if (list.length === 0) {
+                html += `<tr><td colspan="6" class="text-center py-5 text-muted"><i class="fas fa-search me-2"></i>No cardholders found matching the selected filters.</td></tr>`;
+            }
+
             html += `</tbody></table></div>`;
             container.innerHTML = html;
             
             this.renderChart('chart_holder', 'pie', chartLabels.slice(0, 8), chartData.slice(0, 8), 'Spend by Cardholder');
         }
         else if (id === 'monthly_stmt') {
-            html += setChartLayout('chart_monthly');
-            html += `<div class="card data-table-wrapper table-responsive"><table class="table data-table table-hover mb-0"><thead><tr class="table-light"><th>Month</th><th class="text-center">Statements Count</th><th class="text-right">Total Billed</th><th class="text-right">Total Outstanding</th><th class="text-center">Action</th></tr></thead><tbody>`;
-            
+            this.monthlyStmtCard = this.monthlyStmtCard || 'all';
+            this.monthlyStmtStatus = this.monthlyStmtStatus || 'all';
+            this.monthlyStmtSort = this.monthlyStmtSort || 'date_asc';
+
+            let filteredStmts = stmts;
+            if (this.monthlyStmtCard !== 'all') {
+                filteredStmts = filteredStmts.filter(s => String(s.card_id) === String(this.monthlyStmtCard));
+            }
+            if (this.monthlyStmtStatus !== 'all') {
+                filteredStmts = filteredStmts.filter(s => (s.payment_status || 'Unpaid') === this.monthlyStmtStatus);
+            }
+
             let monthStats = {};
-            stmts.forEach(s => {
+            filteredStmts.forEach(s => {
                 const m = window.Utils.formatMonthYear(s.statement_month);
                 if(!monthStats[m]) monthStats[m] = { label: m, count: 0, billed: 0, out: 0, rawDate: new Date(s.statement_month).getTime() };
                 monthStats[m].count++;
                 monthStats[m].billed += Utils.parseNum(s.billed_amount);
                 monthStats[m].out += Utils.parseNum(s.closing_outstanding);
             });
-            
-            let sortedMonths = Object.keys(monthStats).sort((a,b) => monthStats[a].rawDate - monthStats[b].rawDate);
+
+            let sortedMonths = Object.keys(monthStats);
+            if (this.monthlyStmtSort === 'date_asc') {
+                sortedMonths.sort((a,b) => monthStats[a].rawDate - monthStats[b].rawDate);
+            } else if (this.monthlyStmtSort === 'date_desc') {
+                sortedMonths.sort((a,b) => monthStats[b].rawDate - monthStats[a].rawDate);
+            } else if (this.monthlyStmtSort === 'billed_desc') {
+                sortedMonths.sort((a,b) => monthStats[b].billed - monthStats[a].billed);
+            } else if (this.monthlyStmtSort === 'out_desc') {
+                sortedMonths.sort((a,b) => monthStats[b].out - monthStats[a].out);
+            }
+
+            html += setChartLayout('chart_monthly');
+
+            const isFiltered = this.monthlyStmtCard !== 'all' || this.monthlyStmtStatus !== 'all' || this.monthlyStmtSort !== 'date_asc';
+
+            html += `
+                <div class="table-toolbar" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:18px;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <span style="font-size:0.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">
+                            <i class="fas fa-filter text-primary me-1"></i> Filter By:
+                        </span>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.monthlyStmtCard=this.value; Reports.refreshCurrentReport();">
+                            <option value="all">All Cards</option>
+                            ${cards.map(c => `<option value="${c.card_id}" ${String(this.monthlyStmtCard) === String(c.card_id) ? 'selected' : ''}>${c.cardholder_name} (*${c.card_last4})</option>`).join('')}
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.monthlyStmtStatus=this.value; Reports.refreshCurrentReport();">
+                            <option value="all" ${this.monthlyStmtStatus === 'all' ? 'selected' : ''}>All Payment Statuses</option>
+                            <option value="Paid" ${this.monthlyStmtStatus === 'Paid' ? 'selected' : ''}>Paid</option>
+                            <option value="Unpaid" ${this.monthlyStmtStatus === 'Unpaid' ? 'selected' : ''}>Unpaid</option>
+                            <option value="Partially Paid" ${this.monthlyStmtStatus === 'Partially Paid' ? 'selected' : ''}>Partially Paid</option>
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.monthlyStmtSort=this.value; Reports.refreshCurrentReport();">
+                            <option value="date_asc" ${this.monthlyStmtSort === 'date_asc' ? 'selected' : ''}>Month (Chronological)</option>
+                            <option value="date_desc" ${this.monthlyStmtSort === 'date_desc' ? 'selected' : ''}>Month (Recent First)</option>
+                            <option value="billed_desc" ${this.monthlyStmtSort === 'billed_desc' ? 'selected' : ''}>Highest Billed</option>
+                            <option value="out_desc" ${this.monthlyStmtSort === 'out_desc' ? 'selected' : ''}>Highest Outstanding</option>
+                        </select>
+                        ${isFiltered ? `<button class="btn btn-sm btn-outline-secondary" style="border-radius:8px;" onclick="Reports.monthlyStmtCard='all'; Reports.monthlyStmtStatus='all'; Reports.monthlyStmtSort='date_asc'; Reports.refreshCurrentReport();"><i class="fas fa-undo me-1"></i>Reset</button>` : ''}
+                    </div>
+                    <span class="badge" style="background:#f1f5f9;color:#475569;font-weight:600;font-size:0.8rem;padding:6px 12px;border-radius:20px;border:1px solid #e2e8f0;">Showing ${sortedMonths.length} Months (${filteredStmts.length} Statements)</span>
+                </div>
+            `;
+
+            html += `<div class="card data-table-wrapper table-responsive"><table class="table data-table table-hover mb-0"><thead><tr class="table-light"><th>Month</th><th class="text-center">Statements Count</th><th class="text-right">Total Billed</th><th class="text-right">Total Outstanding</th><th class="text-center">Action</th></tr></thead><tbody>`;
+
             let chartLabels = [];
             let chartBilled = [];
             let chartOut = [];
-            
+
             sortedMonths.forEach(m => {
                 chartLabels.push(m);
                 chartBilled.push(monthStats[m].billed);
@@ -441,6 +1016,11 @@ window.Reports = {
                 </tr>`;
                 this.exportData.push({ Month: m, Statements: monthStats[m].count, 'Total Billed': monthStats[m].billed, 'Outstanding': monthStats[m].out });
             });
+
+            if (sortedMonths.length === 0) {
+                html += `<tr><td colspan="5" class="text-center py-5 text-muted"><i class="fas fa-search me-2"></i>No statements found matching the selected filters.</td></tr>`;
+            }
+
             html += `</tbody></table></div>`;
             container.innerHTML = html;
             
@@ -449,54 +1029,316 @@ window.Reports = {
                  {label: 'Outstanding', data: chartOut, backgroundColor: 'rgba(239, 71, 111, 0.2)', borderColor: '#ef476f', fill: true}]);
         }
         else if (id === 'payment_out') {
-            html += setChartLayout('chart_payment');
-            html += `<div class="card data-table-wrapper table-responsive"><table class="table data-table mb-0"><thead><tr class="table-light"><th>Card</th><th>Month</th><th>Due Date</th><th class="text-right">Billed</th><th class="text-right">Paid</th><th class="text-right">Outstanding</th><th>Status</th></tr></thead><tbody>`;
-            
-            let chartLabels = ['Paid / Cleared', 'Outstanding Dues'];
-            let paidTotal = 0;
-            let outTotal = 0;
-            
-            stmts.forEach(s => {
-                paidTotal += (s.credits_payments || 0);
-                outTotal += (s.closing_outstanding || 0);
-                const c = cards.find(x => x.card_id === s.card_id);
+            this.paymentOutCard = this.paymentOutCard || 'all';
+            this.paymentOutMonth = this.paymentOutMonth || 'all';
+            this.paymentOutStatus = this.paymentOutStatus || 'all';
+            this.paymentOutSearch = this.paymentOutSearch || '';
+            this.paymentOutSort = this.paymentOutSort || 'due_asc';
+
+            const months = [...new Set(stmts.map(s => window.Utils.formatMonthYear(s.statement_month)).filter(Boolean))].sort();
+
+            let filtered = stmts.map(s => {
+                const c = cards.find(x => String(x.card_id) === String(s.card_id));
                 const name = c ? c.cardholder_name + ' (*' + c.card_last4 + ')' : 'Unknown';
-                const statClass = s.payment_status === 'Paid' ? 'bg-success' : 'bg-warning text-dark';
-                
-                html += `<tr><td>${name}</td><td>${window.Utils.formatMonthYear(s.statement_month)}</td><td>${window.Utils.formatDate(s.due_date)}</td><td class="text-right">${window.Utils.formatCurrency(s.billed_amount)}</td><td class="text-right text-success">${window.Utils.formatCurrency(s.credits_payments)}</td><td class="text-right fw-bold text-danger">${window.Utils.formatCurrency(s.closing_outstanding)}</td><td><span class="badge ${statClass}">${s.payment_status}</span></td></tr>`;
-                this.exportData.push({ Card: name, Month: window.Utils.formatMonthYear(s.statement_month), Due: window.Utils.formatDate(s.due_date), Billed: s.billed_amount, Paid: s.credits_payments, Outstanding: s.closing_outstanding, Status: s.payment_status });
+                const monthStr = window.Utils.formatMonthYear(s.statement_month);
+                const bank = c ? c.bank_name : (s.bank_name || '');
+                return {
+                    stmt: s,
+                    card: c,
+                    name: name,
+                    bank: bank,
+                    last4: c ? c.card_last4 : '',
+                    month: monthStr,
+                    rawMonth: s.statement_month,
+                    dueDate: s.due_date ? new Date(s.due_date) : null,
+                    dueDateStr: window.Utils.formatDate(s.due_date),
+                    billed: Utils.parseNum(s.billed_amount) || 0,
+                    paid: Utils.parseNum(s.credits_payments) || 0,
+                    out: Utils.parseNum(s.closing_outstanding) || 0,
+                    status: s.payment_status || 'Unpaid'
+                };
             });
+
+            // Filtering
+            if (this.paymentOutCard !== 'all') {
+                filtered = filtered.filter(x => String(x.stmt.card_id) === String(this.paymentOutCard));
+            }
+            if (this.paymentOutMonth !== 'all') {
+                filtered = filtered.filter(x => x.month === this.paymentOutMonth);
+            }
+            if (this.paymentOutStatus === 'unpaid') {
+                filtered = filtered.filter(x => x.status !== 'Paid' && x.out > 0);
+            } else if (this.paymentOutStatus !== 'all') {
+                filtered = filtered.filter(x => x.status === this.paymentOutStatus);
+            }
+            if (this.paymentOutSearch) {
+                const q = this.paymentOutSearch.toLowerCase();
+                filtered = filtered.filter(x => x.name.toLowerCase().includes(q) || x.bank.toLowerCase().includes(q) || x.last4.includes(q));
+            }
+
+            // Sorting
+            if (this.paymentOutSort === 'due_asc') {
+                filtered.sort((a,b) => (a.dueDate ? a.dueDate.getTime() : 0) - (b.dueDate ? b.dueDate.getTime() : 0));
+            } else if (this.paymentOutSort === 'due_desc') {
+                filtered.sort((a,b) => (b.dueDate ? b.dueDate.getTime() : 0) - (a.dueDate ? a.dueDate.getTime() : 0));
+            } else if (this.paymentOutSort === 'out_desc') {
+                filtered.sort((a,b) => b.out - a.out);
+            } else if (this.paymentOutSort === 'billed_desc') {
+                filtered.sort((a,b) => b.billed - a.billed);
+            }
+
+            let paidTotal = filtered.reduce((s, x) => s + x.paid, 0);
+            let outTotal = filtered.reduce((s, x) => s + x.out, 0);
+            let billedTotal = filtered.reduce((s, x) => s + x.billed, 0);
+
+            html += setChartLayout('chart_payment');
+
+            const isFiltered = this.paymentOutCard !== 'all' || this.paymentOutMonth !== 'all' || this.paymentOutStatus !== 'all' || this.paymentOutSearch !== '' || this.paymentOutSort !== 'due_asc';
+
+            html += `
+                <div class="table-toolbar" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:18px;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <span style="font-size:0.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">
+                            <i class="fas fa-filter text-primary me-1"></i> Filter By:
+                        </span>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.paymentOutCard=this.value; Reports.refreshCurrentReport();">
+                            <option value="all">All Cards</option>
+                            ${cards.map(c => `<option value="${c.card_id}" ${String(this.paymentOutCard) === String(c.card_id) ? 'selected' : ''}>${c.cardholder_name} (*${c.card_last4})</option>`).join('')}
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.paymentOutMonth=this.value; Reports.refreshCurrentReport();">
+                            <option value="all" ${this.paymentOutMonth === 'all' ? 'selected' : ''}>All Months</option>
+                            ${months.map(m => `<option value="${m}" ${this.paymentOutMonth === m ? 'selected' : ''}>${m}</option>`).join('')}
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.paymentOutStatus=this.value; Reports.refreshCurrentReport();">
+                            <option value="all" ${this.paymentOutStatus === 'all' ? 'selected' : ''}>All Statuses</option>
+                            <option value="unpaid" ${this.paymentOutStatus === 'unpaid' ? 'selected' : ''}>Pending Dues Only</option>
+                            <option value="Paid" ${this.paymentOutStatus === 'Paid' ? 'selected' : ''}>Paid / Cleared</option>
+                            <option value="Partially Paid" ${this.paymentOutStatus === 'Partially Paid' ? 'selected' : ''}>Partially Paid</option>
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.paymentOutSort=this.value; Reports.refreshCurrentReport();">
+                            <option value="due_asc" ${this.paymentOutSort === 'due_asc' ? 'selected' : ''}>Due Date (Earliest)</option>
+                            <option value="due_desc" ${this.paymentOutSort === 'due_desc' ? 'selected' : ''}>Due Date (Latest)</option>
+                            <option value="out_desc" ${this.paymentOutSort === 'out_desc' ? 'selected' : ''}>Highest Outstanding</option>
+                            <option value="billed_desc" ${this.paymentOutSort === 'billed_desc' ? 'selected' : ''}>Highest Billed</option>
+                        </select>
+                        <input type="text" id="payment-out-search" class="form-control form-control-sm" placeholder="Search card, bank..." value="${this.paymentOutSearch}" style="width:170px;border-radius:8px;" oninput="Reports.handleSearchInput('payment-out-search', 'paymentOutSearch', this.value);">
+                        ${isFiltered ? `<button class="btn btn-sm btn-outline-secondary" style="border-radius:8px;" onclick="Reports.paymentOutCard='all'; Reports.paymentOutMonth='all'; Reports.paymentOutStatus='all'; Reports.paymentOutSearch=''; Reports.paymentOutSort='due_asc'; Reports.refreshCurrentReport();"><i class="fas fa-undo me-1"></i>Reset</button>` : ''}
+                    </div>
+                    <span class="badge" style="background:#f1f5f9;color:#475569;font-weight:600;font-size:0.8rem;padding:6px 12px;border-radius:20px;border:1px solid #e2e8f0;">Showing ${filtered.length} of ${stmts.length} statements</span>
+                </div>
+            `;
+
+            html += `<div class="card data-table-wrapper table-responsive"><table class="table data-table mb-0"><thead><tr class="table-light"><th>Card</th><th>Month</th><th>Due Date</th><th class="text-right">Billed</th><th class="text-right">Paid</th><th class="text-right">Outstanding</th><th>Status</th></tr></thead><tbody>`;
+
+            filtered.forEach(x => {
+                const statClass = x.status === 'Paid' ? 'bg-success' : 'bg-warning text-dark';
+                html += `<tr>
+                    <td><strong>${x.name}</strong></td>
+                    <td>${x.month}</td>
+                    <td>${x.dueDateStr}</td>
+                    <td class="text-right">${window.Utils.formatCurrency(x.billed)}</td>
+                    <td class="text-right text-success">${window.Utils.formatCurrency(x.paid)}</td>
+                    <td class="text-right fw-bold text-danger">${window.Utils.formatCurrency(x.out)}</td>
+                    <td><span class="badge ${statClass}">${x.status}</span></td>
+                </tr>`;
+                this.exportData.push({ Card: x.name, Month: x.month, Due: x.dueDateStr, Billed: x.billed, Paid: x.paid, Outstanding: x.out, Status: x.status });
+            });
+
+            if (filtered.length === 0) {
+                html += `<tr><td colspan="7" class="text-center py-5 text-muted"><i class="fas fa-search me-2"></i>No statement payment records found matching the selected filters.</td></tr>`;
+            }
+
             html += `</tbody></table></div>`;
             container.innerHTML = html;
             
-            this.renderChart('chart_payment', 'pie', chartLabels, [paidTotal, outTotal], 'Payments vs Outstanding', ['#06d6a0', '#ef476f']);
+            this.renderChart('chart_payment', 'pie', ['Paid / Cleared', 'Outstanding Dues'], [paidTotal, outTotal], 'Payments vs Outstanding', ['#06d6a0', '#ef476f']);
         }
         else if (id === 'import_history') {
-            const batches = window.DB.data.import_batches || [];
+            this.importPeriod = this.importPeriod || 'all';
+            this.importSearch = this.importSearch || '';
+            this.importSort = this.importSort || 'date_desc';
+
+            let batches = [...(window.DB.data.import_batches || [])];
+            const now = new Date();
+
+            if (this.importPeriod === '7d') {
+                const cutoff = new Date(now.getTime() - 7 * 86400000);
+                batches = batches.filter(b => new Date(b.import_date) >= cutoff);
+            } else if (this.importPeriod === '30d') {
+                const cutoff = new Date(now.getTime() - 30 * 86400000);
+                batches = batches.filter(b => new Date(b.import_date) >= cutoff);
+            } else if (this.importPeriod === '90d') {
+                const cutoff = new Date(now.getTime() - 90 * 86400000);
+                batches = batches.filter(b => new Date(b.import_date) >= cutoff);
+            }
+
+            if (this.importSearch) {
+                const q = this.importSearch.toLowerCase();
+                batches = batches.filter(b => (b.file_name || '').toLowerCase().includes(q));
+            }
+
+            if (this.importSort === 'date_desc') {
+                batches.sort((a,b) => new Date(b.import_date) - new Date(a.import_date));
+            } else if (this.importSort === 'date_asc') {
+                batches.sort((a,b) => new Date(a.import_date) - new Date(b.import_date));
+            } else if (this.importSort === 'records_desc') {
+                batches.sort((a,b) => (b.records_added || 0) - (a.records_added || 0));
+            } else if (this.importSort === 'amount_desc') {
+                batches.sort((a,b) => (b.total_amount || 0) - (a.total_amount || 0));
+            }
+
+            const totalBatches = batches.length;
+            const totalRecords = batches.reduce((s, b) => s + (b.records_added || 0), 0);
+            const totalAmount = batches.reduce((s, b) => s + (b.total_amount || 0), 0);
+
+            html += `
+                <div class="row g-3 mb-4">
+                    <div class="col-md-4">
+                        <div class="card p-3 border-0 shadow-sm" style="border-radius:12px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:#fff;">
+                            <div class="text-uppercase small fw-bold opacity-75">Total Import Batches</div>
+                            <div class="fs-4 fw-bold mt-1">${totalBatches}</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card p-3 border-0 shadow-sm" style="border-radius:12px;background:linear-gradient(135deg,#10b981,#047857);color:#fff;">
+                            <div class="text-uppercase small fw-bold opacity-75">Total Transactions Imported</div>
+                            <div class="fs-4 fw-bold mt-1">${totalRecords}</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card p-3 border-0 shadow-sm" style="border-radius:12px;background:linear-gradient(135deg,#7c3aed,#5b21b6);color:#fff;">
+                            <div class="text-uppercase small fw-bold opacity-75">Total Value Processed</div>
+                            <div class="fs-4 fw-bold mt-1">${window.Utils.formatCurrency(totalAmount)}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const isFiltered = this.importPeriod !== 'all' || this.importSearch !== '' || this.importSort !== 'date_desc';
+
+            html += `
+                <div class="table-toolbar" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:18px;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <span style="font-size:0.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">
+                            <i class="fas fa-filter text-primary me-1"></i> Filter By:
+                        </span>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.importPeriod=this.value; Reports.refreshCurrentReport();">
+                            <option value="all" ${this.importPeriod === 'all' ? 'selected' : ''}>All Time</option>
+                            <option value="7d" ${this.importPeriod === '7d' ? 'selected' : ''}>Last 7 Days</option>
+                            <option value="30d" ${this.importPeriod === '30d' ? 'selected' : ''}>Last 30 Days</option>
+                            <option value="90d" ${this.importPeriod === '90d' ? 'selected' : ''}>Last 90 Days</option>
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.importSort=this.value; Reports.refreshCurrentReport();">
+                            <option value="date_desc" ${this.importSort === 'date_desc' ? 'selected' : ''}>Date (Newest First)</option>
+                            <option value="date_asc" ${this.importSort === 'date_asc' ? 'selected' : ''}>Date (Oldest First)</option>
+                            <option value="records_desc" ${this.importSort === 'records_desc' ? 'selected' : ''}>Most Records</option>
+                            <option value="amount_desc" ${this.importSort === 'amount_desc' ? 'selected' : ''}>Highest Amount</option>
+                        </select>
+                        <input type="text" id="import-search" class="form-control form-control-sm" placeholder="Search file name..." value="${this.importSearch}" style="width:190px;border-radius:8px;" oninput="Reports.handleSearchInput('import-search', 'importSearch', this.value);">
+                        ${isFiltered ? `<button class="btn btn-sm btn-outline-secondary" style="border-radius:8px;" onclick="Reports.importPeriod='all'; Reports.importSearch=''; Reports.importSort='date_desc'; Reports.refreshCurrentReport();"><i class="fas fa-undo me-1"></i>Reset</button>` : ''}
+                    </div>
+                    <span class="badge" style="background:#f1f5f9;color:#475569;font-weight:600;font-size:0.8rem;padding:6px 12px;border-radius:20px;border:1px solid #e2e8f0;">Showing ${batches.length} batches</span>
+                </div>
+            `;
+
             html += `<div class="card data-table-wrapper table-responsive"><table class="table data-table mb-0"><thead><tr class="table-light"><th>Import Date</th><th>File Name</th><th class="text-center">Records Added</th><th class="text-right">Total Amount</th></tr></thead><tbody>`;
-            
-            batches.sort((a,b) => new Date(b.import_date) - new Date(a.import_date)).forEach(b => {
-                html += `<tr><td>${window.Utils.formatDate(b.import_date)} ${new Date(b.import_date).toLocaleTimeString()}</td><td>${b.file_name}</td><td class="text-center">${b.records_added}</td><td class="text-right fw-bold">${window.Utils.formatCurrency(b.total_amount)}</td></tr>`;
+
+            batches.forEach(b => {
+                html += `<tr><td>${window.Utils.formatDate(b.import_date)} ${new Date(b.import_date).toLocaleTimeString()}</td><td><code>${b.file_name}</code></td><td class="text-center"><span class="badge bg-primary">${b.records_added}</span></td><td class="text-right fw-bold">${window.Utils.formatCurrency(b.total_amount)}</td></tr>`;
                 this.exportData.push({ 'Import Date': b.import_date, 'File Name': b.file_name, 'Records Added': b.records_added, 'Total Amount': b.total_amount });
             });
-            if(batches.length === 0) html += `<tr><td colspan="4" class="text-center py-4">No import history found.</td></tr>`;
+            if(batches.length === 0) html += `<tr><td colspan="4" class="text-center py-5 text-muted"><i class="fas fa-search me-2"></i>No import batches found matching the selected filters.</td></tr>`;
             html += `</tbody></table></div>`;
             container.innerHTML = html;
         }
         else if (id === 'unmapped_ledger') {
-            const unmapped = txns.filter(t => !t.card_id);
-            html += `<div class="alert alert-danger mb-3"><i class="fas fa-exclamation-triangle me-2"></i>Found ${unmapped.length} unmapped transactions that need to be assigned to a card.</div>`;
+            this.unmappedAmtRange = this.unmappedAmtRange || 'all';
+            this.unmappedSearch = this.unmappedSearch || '';
+            this.unmappedSort = this.unmappedSort || 'amt_desc';
+
+            let unmapped = txns.filter(t => !t.card_id);
+            const totalUnmapped = unmapped.length;
+            const totalAmt = unmapped.reduce((s, t) => s + (Utils.parseNum(t.amount) || 0), 0);
+
+            // Filter
+            if (this.unmappedAmtRange === 'gt50k') {
+                unmapped = unmapped.filter(t => Utils.parseNum(t.amount) >= 50000);
+            } else if (this.unmappedAmtRange === 'gt25k') {
+                unmapped = unmapped.filter(t => Utils.parseNum(t.amount) >= 25000 && Utils.parseNum(t.amount) < 50000);
+            } else if (this.unmappedAmtRange === 'gt5k') {
+                unmapped = unmapped.filter(t => Utils.parseNum(t.amount) >= 5000 && Utils.parseNum(t.amount) < 25000);
+            } else if (this.unmappedAmtRange === 'lt5k') {
+                unmapped = unmapped.filter(t => Utils.parseNum(t.amount) < 5000);
+            }
+
+            if (this.unmappedSearch) {
+                const q = this.unmappedSearch.toLowerCase();
+                unmapped = unmapped.filter(t => (t.zoho_ledger || '').toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q));
+            }
+
+            // Sort
+            if (this.unmappedSort === 'amt_desc') {
+                unmapped.sort((a,b) => Utils.parseNum(b.amount) - Utils.parseNum(a.amount));
+            } else if (this.unmappedSort === 'amt_asc') {
+                unmapped.sort((a,b) => Utils.parseNum(a.amount) - Utils.parseNum(b.amount));
+            } else if (this.unmappedSort === 'date_desc') {
+                unmapped.sort((a,b) => (b.txn_date || '').localeCompare(a.txn_date || ''));
+            } else if (this.unmappedSort === 'date_asc') {
+                unmapped.sort((a,b) => (a.txn_date || '').localeCompare(b.txn_date || ''));
+            } else if (this.unmappedSort === 'ledger_asc') {
+                unmapped.sort((a,b) => (a.zoho_ledger || '').localeCompare(b.zoho_ledger || ''));
+            }
+
+            if (totalUnmapped > 0) {
+                html += `<div class="alert alert-danger mb-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div><i class="fas fa-exclamation-triangle me-2"></i>Found <strong>${totalUnmapped}</strong> unmapped transactions totaling <strong>${window.Utils.formatCurrency(totalAmt)}</strong> that need card assignment.</div>
+                    <button class="btn btn-sm btn-danger" onclick="window.App.navigate('transactions');"><i class="fas fa-link me-1"></i> Go to Transactions</button>
+                </div>`;
+            }
+
+            const isFiltered = this.unmappedAmtRange !== 'all' || this.unmappedSearch !== '' || this.unmappedSort !== 'amt_desc';
+
+            html += `
+                <div class="table-toolbar" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:18px;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <span style="font-size:0.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">
+                            <i class="fas fa-filter text-primary me-1"></i> Filter By:
+                        </span>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.unmappedAmtRange=this.value; Reports.refreshCurrentReport();">
+                            <option value="all" ${this.unmappedAmtRange === 'all' ? 'selected' : ''}>All Amount Ranges</option>
+                            <option value="gt50k" ${this.unmappedAmtRange === 'gt50k' ? 'selected' : ''}>High Value (&ge; ₹50,000)</option>
+                            <option value="gt25k" ${this.unmappedAmtRange === 'gt25k' ? 'selected' : ''}>Medium (₹25,000 - ₹50,000)</option>
+                            <option value="gt5k" ${this.unmappedAmtRange === 'gt5k' ? 'selected' : ''}>Low (₹5,000 - ₹25,000)</option>
+                            <option value="lt5k" ${this.unmappedAmtRange === 'lt5k' ? 'selected' : ''}>Minor (&lt; ₹5,000)</option>
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.unmappedSort=this.value; Reports.refreshCurrentReport();">
+                            <option value="amt_desc" ${this.unmappedSort === 'amt_desc' ? 'selected' : ''}>Amount (High to Low)</option>
+                            <option value="amt_asc" ${this.unmappedSort === 'amt_asc' ? 'selected' : ''}>Amount (Low to High)</option>
+                            <option value="date_desc" ${this.unmappedSort === 'date_desc' ? 'selected' : ''}>Date (Recent First)</option>
+                            <option value="date_asc" ${this.unmappedSort === 'date_asc' ? 'selected' : ''}>Date (Oldest First)</option>
+                            <option value="ledger_asc" ${this.unmappedSort === 'ledger_asc' ? 'selected' : ''}>Ledger Name (A-Z)</option>
+                        </select>
+                        <input type="text" id="unmapped-search" class="form-control form-control-sm" placeholder="Search ledger or description..." value="${this.unmappedSearch}" style="width:220px;border-radius:8px;" oninput="Reports.handleSearchInput('unmapped-search', 'unmappedSearch', this.value);">
+                        ${isFiltered ? `<button class="btn btn-sm btn-outline-secondary" style="border-radius:8px;" onclick="Reports.unmappedAmtRange='all'; Reports.unmappedSearch=''; Reports.unmappedSort='amt_desc'; Reports.refreshCurrentReport();"><i class="fas fa-undo me-1"></i>Reset</button>` : ''}
+                    </div>
+                    <span class="badge" style="background:#f1f5f9;color:#475569;font-weight:600;font-size:0.8rem;padding:6px 12px;border-radius:20px;border:1px solid #e2e8f0;">Showing ${unmapped.length} of ${totalUnmapped} unmapped</span>
+                </div>
+            `;
+
             html += `<div class="card data-table-wrapper table-responsive"><table class="table data-table mb-0"><thead><tr class="table-light"><th>Date</th><th>Ledger Name</th><th>Description</th><th class="text-right">Amount</th></tr></thead><tbody>`;
             unmapped.forEach(t => {
-                html += `<tr><td>${window.Utils.formatDate(t.txn_date)}</td><td><strong>${t.zoho_ledger}</strong></td><td>${t.description}</td><td class="text-right fw-bold">${window.Utils.formatCurrency(t.amount)}</td></tr>`;
+                html += `<tr><td>${window.Utils.formatDate(t.txn_date)}</td><td><strong>${t.zoho_ledger || '-'}</strong></td><td>${t.description || '-'}</td><td class="text-right fw-bold text-danger">${window.Utils.formatCurrency(t.amount)}</td></tr>`;
                 this.exportData.push({ Date: window.Utils.formatDate(t.txn_date), Ledger: t.zoho_ledger, Description: t.description, Amount: t.amount });
             });
-            if(unmapped.length === 0) html += `<tr><td colspan="4" class="text-center py-4 text-success"><i class="fas fa-check-circle me-2"></i>All transactions are mapped successfully!</td></tr>`;
+            if(unmapped.length === 0) html += `<tr><td colspan="4" class="text-center py-5 text-success"><i class="fas fa-check-circle me-2 fa-2x d-block mb-2"></i>All transactions in this view are mapped successfully!</td></tr>`;
             html += `</tbody></table></div>`;
             container.innerHTML = html;
         }
         else if (id === 'payment_due_aging') {
             this.dueAgingFilter = this.dueAgingFilter || 'all';
+            this.dueAgingBank = this.dueAgingBank || 'all';
+            this.dueAgingCard = this.dueAgingCard || 'all';
+            this.dueAgingSearch = this.dueAgingSearch || '';
 
             const pendingStmts = stmts.filter(s => s.payment_status !== 'Paid' && (s.closing_outstanding || 0) > 0);
             const today = new Date();
@@ -599,6 +1441,16 @@ window.Reports = {
             if (this.dueAgingFilter && this.dueAgingFilter !== 'all') {
                 filteredItems = items.filter(it => it.bucketKey === this.dueAgingFilter);
             }
+            if (this.dueAgingBank && this.dueAgingBank !== 'all') {
+                filteredItems = filteredItems.filter(it => it.bankName === this.dueAgingBank);
+            }
+            if (this.dueAgingCard && this.dueAgingCard !== 'all') {
+                filteredItems = filteredItems.filter(it => it.card && String(it.card.card_id) === String(this.dueAgingCard));
+            }
+            if (this.dueAgingSearch) {
+                const q = this.dueAgingSearch.toLowerCase();
+                filteredItems = filteredItems.filter(it => (it.cardholderName || '').toLowerCase().includes(q) || (it.bankName || '').toLowerCase().includes(q) || (it.cardLast4 || '').includes(q));
+            }
 
             // Top Urgency Stat Cards
             html += `
@@ -666,6 +1518,30 @@ window.Reports = {
                     <div style="height: 260px;">
                         <canvas id="chart_due_aging"></canvas>
                     </div>
+                </div>
+            `;
+
+            const allBanks = window.DB.cards.getBanks();
+            const isAgingFiltered = this.dueAgingFilter !== 'all' || this.dueAgingBank !== 'all' || this.dueAgingCard !== 'all' || this.dueAgingSearch !== '';
+
+            html += `
+                <div class="table-toolbar" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:18px;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <span style="font-size:0.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">
+                            <i class="fas fa-filter text-primary me-1"></i> Filter Dues:
+                        </span>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.dueAgingCard=this.value; Reports.refreshCurrentReport();">
+                            <option value="all">All Cards</option>
+                            ${cards.map(c => `<option value="${c.card_id}" ${String(this.dueAgingCard) === String(c.card_id) ? 'selected' : ''}>${c.cardholder_name} (*${c.card_last4})</option>`).join('')}
+                        </select>
+                        <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.dueAgingBank=this.value; Reports.refreshCurrentReport();">
+                            <option value="all" ${this.dueAgingBank === 'all' ? 'selected' : ''}>All Banks</option>
+                            ${allBanks.map(b => `<option value="${b}" ${this.dueAgingBank === b ? 'selected' : ''}>${b}</option>`).join('')}
+                        </select>
+                        <input type="text" id="due-aging-search" class="form-control form-control-sm" placeholder="Search cardholder, bank..." value="${this.dueAgingSearch}" style="width:190px;border-radius:8px;" oninput="Reports.handleSearchInput('due-aging-search', 'dueAgingSearch', this.value);">
+                        ${isAgingFiltered ? `<button class="btn btn-sm btn-outline-secondary" style="border-radius:8px;" onclick="Reports.dueAgingFilter='all'; Reports.dueAgingBank='all'; Reports.dueAgingCard='all'; Reports.dueAgingSearch=''; Reports.refreshCurrentReport();"><i class="fas fa-undo me-1"></i>Reset All</button>` : ''}
+                    </div>
+                    <span class="badge" style="background:#f1f5f9;color:#475569;font-weight:600;font-size:0.8rem;padding:6px 12px;border-radius:20px;border:1px solid #e2e8f0;">Showing ${filteredItems.length} of ${totalPendingCount} pending dues</span>
                 </div>
             `;
 
@@ -956,6 +1832,8 @@ exportCurrentReport: function() {
         this.hygienePageSize = this.hygienePageSize || 20;
         this.hygienePage = this.hygienePage || 1;
         this.hygieneSearch = this.hygieneSearch || '';
+        this.hygieneIssueType = this.hygieneIssueType || 'issues';
+        this.hygieneBank = this.hygieneBank || 'all';
         const hData = window.DB.getDataHygiene();
         
         let mName=0, mAddr=0, mPhone=0, mEmail=0, mLimit=0, mStmt=0, mDue=0;
@@ -975,18 +1853,22 @@ exportCurrentReport: function() {
         const healthColor = healthPct >= 80 ? '#10b981' : (healthPct >= 50 ? '#f59e0b' : '#ef4444');
 
         const statsCards = [
-            { label: 'Missing Name',    count: mName,  icon: 'fa-user',           gradient: 'linear-gradient(135deg,#ff6b6b,#ee5a24)' },
-            { label: 'Missing Address', count: mAddr,  icon: 'fa-map-marker-alt', gradient: 'linear-gradient(135deg,#ffa502,#ff6348)' },
-            { label: 'Missing Phone',   count: mPhone, icon: 'fa-phone',          gradient: 'linear-gradient(135deg,#667eea,#764ba2)' },
-            { label: 'Missing Email',   count: mEmail, icon: 'fa-envelope',       gradient: 'linear-gradient(135deg,#4facfe,#00f2fe)' },
-            { label: 'Missing Limit',   count: mLimit, icon: 'fa-rupee-sign',     gradient: 'linear-gradient(135deg,#f093fb,#f5576c)' },
-            { label: 'Missing Stmt Date', count: mStmt, icon: 'fa-calendar',      gradient: 'linear-gradient(135deg,#a18cd1,#fbc2eb)' },
-            { label: 'Missing Due Date', count: mDue,   icon: 'fa-calendar-check',gradient: 'linear-gradient(135deg,#43e97b,#38f9d7)' }
+            { key: 'missing_name',           label: 'Missing Name',      count: mName,  icon: 'fa-user',           gradient: 'linear-gradient(135deg,#ff6b6b,#ee5a24)' },
+            { key: 'missing_address',        label: 'Missing Address',   count: mAddr,  icon: 'fa-map-marker-alt', gradient: 'linear-gradient(135deg,#ffa502,#ff6348)' },
+            { key: 'missing_phone',          label: 'Missing Phone',     count: mPhone, icon: 'fa-phone',          gradient: 'linear-gradient(135deg,#667eea,#764ba2)' },
+            { key: 'missing_email',          label: 'Missing Email',     count: mEmail, icon: 'fa-envelope',       gradient: 'linear-gradient(135deg,#4facfe,#00f2fe)' },
+            { key: 'missing_limit',          label: 'Missing Limit',     count: mLimit, icon: 'fa-rupee-sign',     gradient: 'linear-gradient(135deg,#f093fb,#f5576c)' },
+            { key: 'missing_statement_date', label: 'Missing Stmt Date', count: mStmt, icon: 'fa-calendar',      gradient: 'linear-gradient(135deg,#a18cd1,#fbc2eb)' },
+            { key: 'missing_due_date',       label: 'Missing Due Date',  count: mDue,   icon: 'fa-calendar-check',gradient: 'linear-gradient(135deg,#43e97b,#38f9d7)' }
         ];
 
-        let statsHtml = statsCards.map(s => `
-            <div style="background:${s.gradient};border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1);transition:transform 0.2s;cursor:default;min-width:140px;flex:1;"
-                 onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform='translateY(0)'">
+        let statsHtml = statsCards.map(s => {
+            const isActive = this.hygieneIssueType === s.key;
+            return `
+            <div onclick="Reports.hygieneIssueType = (Reports.hygieneIssueType === '${s.key}' ? 'issues' : '${s.key}'); Reports.hygienePage = 1; Reports.renderHygiene(Reports.container);"
+                 style="background:${s.gradient};border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:12px;box-shadow:${isActive ? '0 0 0 3px #1a1a2e, 0 6px 16px rgba(0,0,0,0.15)' : '0 4px 12px rgba(0,0,0,0.1)'};transition:all 0.2s;cursor:pointer;min-width:140px;flex:1;${isActive ? 'transform:translateY(-2px);' : ''}"
+                 onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform='${isActive ? 'translateY(-2px)' : 'translateY(0)'}'"
+                 title="Click to filter cards by ${s.label}">
                 <div style="width:40px;height:40px;border-radius:10px;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
                     <i class="fas ${s.icon}" style="font-size:16px;color:#fff;"></i>
                 </div>
@@ -995,10 +1877,23 @@ exportCurrentReport: function() {
                     <div style="font-size:11px;color:rgba(255,255,255,0.85);font-weight:500;margin-top:2px;">${s.label}</div>
                 </div>
             </div>
-        `).join('');
+            `;
+        }).join('');
 
-        // Filter data for table (only cards with issues) + search
-        let issueCards = hData.filter(h => h.total_missing > 0);
+        // Filter data for table
+        let issueCards = hData;
+        if (this.hygieneIssueType === 'issues') {
+            issueCards = issueCards.filter(h => h.total_missing > 0);
+        } else if (this.hygieneIssueType === 'clean') {
+            issueCards = issueCards.filter(h => h.total_missing === 0);
+        } else if (this.hygieneIssueType !== 'all') {
+            issueCards = issueCards.filter(h => Boolean(h[this.hygieneIssueType]));
+        }
+
+        if (this.hygieneBank !== 'all') {
+            issueCards = issueCards.filter(h => h.bank_name === this.hygieneBank);
+        }
+
         if(this.hygieneSearch) {
             const q = this.hygieneSearch.toLowerCase();
             issueCards = issueCards.filter(h =>
@@ -1008,6 +1903,22 @@ exportCurrentReport: function() {
                 (h.card_last4 || '').toLowerCase().includes(q)
             );
         }
+
+        this.exportData = issueCards.map(h => ({
+            Cardholder: h.cardholder_name,
+            Owner: h.primary_cardholder,
+            Bank: h.bank_name,
+            Last4: h.card_last4,
+            'Missing Name': h.missing_name ? 'Yes' : 'No',
+            'Missing Address': h.missing_address ? 'Yes' : 'No',
+            'Missing Phone': h.missing_phone ? 'Yes' : 'No',
+            'Missing Email': h.missing_email ? 'Yes' : 'No',
+            'Missing Limit': h.missing_limit ? 'Yes' : 'No',
+            'Missing Stmt Date': h.missing_statement_date ? 'Yes' : 'No',
+            'Missing Due Date': h.missing_due_date ? 'Yes' : 'No',
+            'Total Issues': h.total_missing
+        }));
+
         const total = issueCards.length;
         const totalPages = Math.ceil(total / this.hygienePageSize) || 1;
         if(this.hygienePage > totalPages) this.hygienePage = totalPages;
@@ -1087,19 +1998,38 @@ exportCurrentReport: function() {
         </div>
 
         <div style="background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.08);overflow:hidden;">
-            <div style="padding:16px 20px;border-bottom:1px solid #e9ecef;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
-                <div style="display:flex;align-items:center;gap:8px;">
+            <div style="padding:16px 20px;border-bottom:1px solid #e9ecef;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
                     <div style="width:34px;height:34px;border-radius:8px;background:linear-gradient(135deg,#667eea,#764ba2);display:flex;align-items:center;justify-content:center;">
                         <i class="fas fa-broom" style="color:#fff;font-size:14px;"></i>
                     </div>
-                    <span style="font-weight:700;font-size:15px;color:#1a1a2e;">Cards with Missing Data</span>
-                    <span style="background:#fee2e2;color:#ef4444;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;">${cardsWithIssues} of ${hData.length}</span>
+                    <span style="font-weight:700;font-size:15px;color:#1a1a2e;">Data Hygiene Audit</span>
+                    <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.hygieneIssueType=this.value; Reports.hygienePage=1; Reports.renderHygiene(Reports.container);">
+                        <option value="issues" ${this.hygieneIssueType === 'issues' ? 'selected' : ''}>Cards with Issues Only</option>
+                        <option value="all" ${this.hygieneIssueType === 'all' ? 'selected' : ''}>All Cards (Complete Fleet)</option>
+                        <option value="clean" ${this.hygieneIssueType === 'clean' ? 'selected' : ''}>Clean Cards Only (0 Issues)</option>
+                        <option value="missing_name" ${this.hygieneIssueType === 'missing_name' ? 'selected' : ''}>Missing Name</option>
+                        <option value="missing_address" ${this.hygieneIssueType === 'missing_address' ? 'selected' : ''}>Missing Address</option>
+                        <option value="missing_phone" ${this.hygieneIssueType === 'missing_phone' ? 'selected' : ''}>Missing Phone</option>
+                        <option value="missing_email" ${this.hygieneIssueType === 'missing_email' ? 'selected' : ''}>Missing Email</option>
+                        <option value="missing_limit" ${this.hygieneIssueType === 'missing_limit' ? 'selected' : ''}>Missing Limit</option>
+                        <option value="missing_statement_date" ${this.hygieneIssueType === 'missing_statement_date' ? 'selected' : ''}>Missing Statement Date</option>
+                        <option value="missing_due_date" ${this.hygieneIssueType === 'missing_due_date' ? 'selected' : ''}>Missing Due Date</option>
+                    </select>
+                    <select class="form-select form-select-sm" style="width:auto;padding:6px 12px;border-radius:8px;font-weight:600;" onchange="Reports.hygieneBank=this.value; Reports.hygienePage=1; Reports.renderHygiene(Reports.container);">
+                        <option value="all" ${this.hygieneBank === 'all' ? 'selected' : ''}>All Banks</option>
+                        ${window.DB.cards.getBanks().map(b => `<option value="${b}" ${this.hygieneBank === b ? 'selected' : ''}>${b}</option>`).join('')}
+                    </select>
+                    ${(this.hygieneIssueType !== 'issues' || this.hygieneBank !== 'all' || this.hygieneSearch !== '') ? `<button class="btn btn-sm btn-outline-secondary" style="border-radius:8px;" onclick="Reports.hygieneIssueType='issues'; Reports.hygieneBank='all'; Reports.hygieneSearch=''; Reports.hygienePage=1; Reports.renderHygiene(Reports.container);"><i class="fas fa-undo me-1"></i>Reset</button>` : ''}
                 </div>
-                <div style="position:relative;">
-                    <i class="fas fa-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#adb5bd;font-size:13px;"></i>
-                    <input type="text" id="hygiene-search" placeholder="Search by name, owner, bank..." value="${this.hygieneSearch}"
-                        oninput="Reports.hygieneSearch=this.value;Reports.hygienePage=1;Reports.renderHygiene(Reports.container);setTimeout(function(){document.getElementById('hygiene-search').focus();},50);"
-                        style="padding:7px 12px 7px 32px;border:1px solid #dee2e6;border-radius:8px;font-size:13px;width:280px;outline:none;background:#f8f9fa;color:#495057;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <div style="position:relative;">
+                        <i class="fas fa-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#adb5bd;font-size:13px;"></i>
+                        <input type="text" id="hygiene-search" placeholder="Search cardholder, bank..." value="${this.hygieneSearch}"
+                            oninput="Reports.handleSearchInput('hygiene-search', 'hygieneSearch', this.value);"
+                            style="padding:7px 12px 7px 32px;border:1px solid #dee2e6;border-radius:8px;font-size:13px;width:220px;outline:none;background:#f8f9fa;color:#495057;">
+                    </div>
+                    <span class="badge" style="background:#fee2e2;color:#ef4444;padding:6px 12px;border-radius:20px;font-size:12px;font-weight:600;">${issueCards.length} matching</span>
                 </div>
             </div>
 
@@ -1157,8 +2087,9 @@ exportCurrentReport: function() {
 
     // ── ITEM 03: SOLE OWNER CATEGORY FILTER ────────────────────
     setSoleOwnerFilter: function(val) {
+        this.soleOwnerCategory = val;
         this.soleOwnerFilter = val;
-        this.loadReport('sole_owner', 'Credit Card Report – Sole Owner');
+        this.refreshCurrentReport();
     },
 
     // ── PAYMENT DUE AGING HORIZON FILTER ───────────────────────
@@ -1168,7 +2099,7 @@ exportCurrentReport: function() {
         } else {
             this.dueAgingFilter = val;
         }
-        this.loadReport('payment_due_aging', 'Payment Due Aging & Liquidity Schedule');
+        this.refreshCurrentReport();
     },
 
     // ── ITEM 05: CARD-WISE DRILL-DOWN MODAL ────────────────────
