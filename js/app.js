@@ -306,6 +306,7 @@ window.App = {
             payments:     'Payments & Statements',
             reports:      'Reports',
             hygiene:      'Data Hygiene',
+            downlodedash: 'Downlode Dashboard',
             users:        'User Management',
             logs:         'Activity Logs'
         };
@@ -324,6 +325,7 @@ window.App = {
             case 'payments':     if (window.Payments      && Payments.render)      Payments.render(content);      break;
             case 'reports':      if (window.Reports       && Reports.render)       Reports.render(content);       break;
             case 'hygiene':      if (window.Reports       && Reports.renderHygiene) Reports.renderHygiene(content); break;
+            case 'downlodedash': if (window.DownlodeDash  && DownlodeDash.render)  DownlodeDash.render(content);  break;
             case 'users':        if (window.Users         && Users.render)         Users.render(content);         break;
             case 'logs':         if (window.Logs          && Logs.render)          Logs.render(content);          break;
             default:
