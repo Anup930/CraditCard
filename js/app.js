@@ -100,6 +100,223 @@ window.Auth = {
         }
     },
 
+    toggleFieldPassword(inputId, iconId) {
+        const input = document.getElementById(inputId);
+        const icon  = document.getElementById(iconId);
+        if (!input) return;
+        if (input.type === 'password') {
+            input.type = 'text';
+            if (icon) icon.className = 'fas fa-eye-slash';
+        } else {
+            input.type = 'password';
+            if (icon) icon.className = 'fas fa-eye';
+        }
+    },
+
+    showChangePasswordModal() {
+        const u = this.currentUser || JSON.parse(sessionStorage.getItem('ccms_user') || '{}');
+        if (!u || !u.username) {
+            if (window.App) window.App.showToast('Please log in first', 'warning');
+            return;
+        }
+
+        const modalHtml = `
+            <form id="change-pwd-form" onsubmit="event.preventDefault(); Auth.submitChangePassword()">
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 14px;">
+                    <div style="width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(135deg, #4361ee, #3a0ca3); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; font-weight: 700; flex-shrink: 0;">
+                        <i class="fas fa-user-shield"></i>
+                    </div>
+                    <div style="flex: 1; overflow: hidden;">
+                        <div style="font-weight: 700; color: #1e293b; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${u.full_name || u.username}</div>
+                        <div style="font-size: 0.8rem; color: #64748b; display: flex; align-items: center; gap: 8px; margin-top: 3px;">
+                            <span>@${u.username}</span>
+                            <span style="display:inline-block; width:4px; height:4px; background:#94a3b8; border-radius:50%;"></span>
+                            <span class="badge" style="background:#e0e7ff; color:#4338ca; font-size:0.7rem; padding:2px 8px; border-radius: 4px;">${u.role || 'User'}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="cp_error" class="hidden" style="background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 10px 14px; border-radius: 8px; font-size: 0.84rem; margin-bottom: 16px; display: flex; align-items: center; gap: 10px;">
+                    <i class="fas fa-exclamation-circle" style="color: #ef4444; font-size: 1rem; flex-shrink: 0;"></i>
+                    <span id="cp_error_msg">Error text</span>
+                </div>
+
+                <div class="form-group mb-3">
+                    <label class="form-label" style="font-weight:600;">Current Password <span style="color:#ef4444;">*</span></label>
+                    <div style="position: relative;">
+                        <input type="password" class="form-control" id="cp_current_password" required placeholder="Enter your current password" style="padding-right: 40px;" autocomplete="current-password">
+                        <button type="button" onclick="Auth.toggleFieldPassword('cp_current_password', 'cp_eye_curr')" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px;" title="Show/Hide Password">
+                            <i class="fas fa-eye" id="cp_eye_curr"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="form-group mb-3">
+                    <label class="form-label" style="font-weight:600;">New Password <span style="color:#ef4444;">*</span></label>
+                    <div style="position: relative;">
+                        <input type="password" class="form-control" id="cp_new_password" required minlength="6" placeholder="Enter new password (min. 6 characters)" style="padding-right: 40px;" autocomplete="new-password">
+                        <button type="button" onclick="Auth.toggleFieldPassword('cp_new_password', 'cp_eye_new')" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px;" title="Show/Hide Password">
+                            <i class="fas fa-eye" id="cp_eye_new"></i>
+                        </button>
+                    </div>
+                    <small class="form-text" style="color: #64748b; font-size: 0.75rem;">Password must be at least 6 characters long.</small>
+                </div>
+
+                <div class="form-group mb-4">
+                    <label class="form-label" style="font-weight:600;">Confirm New Password <span style="color:#ef4444;">*</span></label>
+                    <div style="position: relative;">
+                        <input type="password" class="form-control" id="cp_confirm_password" required minlength="6" placeholder="Re-type new password" style="padding-right: 40px;" autocomplete="new-password">
+                        <button type="button" onclick="Auth.toggleFieldPassword('cp_confirm_password', 'cp_eye_conf')" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px;" title="Show/Hide Password">
+                            <i class="fas fa-eye" id="cp_eye_conf"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="modal-actions" style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 10px;">
+                    <button type="button" class="btn btn-secondary" onclick="App.closeModal()">Cancel</button>
+                    <button type="submit" id="cp_submit_btn" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:8px;">
+                        <i class="fas fa-key"></i> <span id="cp_btn_text">Update Password</span>
+                    </button>
+                </div>
+            </form>
+        `;
+
+        if (window.App && typeof window.App.showModal === 'function') {
+            window.App.showModal('Change Account Password', modalHtml);
+            setTimeout(() => {
+                const el = document.getElementById('cp_current_password');
+                if (el) el.focus();
+            }, 100);
+        }
+    },
+
+    async submitChangePassword() {
+        const errBox = document.getElementById('cp_error');
+        const errMsg = document.getElementById('cp_error_msg');
+        const btn = document.getElementById('cp_submit_btn');
+        const btnText = document.getElementById('cp_btn_text');
+
+        const showError = (msg) => {
+            if (errMsg) errMsg.textContent = msg;
+            if (errBox) errBox.classList.remove('hidden');
+        };
+
+        if (errBox) errBox.classList.add('hidden');
+
+        const currentPwd = (document.getElementById('cp_current_password')?.value || '').trim();
+        const newPwd = (document.getElementById('cp_new_password')?.value || '').trim();
+        const confirmPwd = (document.getElementById('cp_confirm_password')?.value || '').trim();
+
+        if (!currentPwd) {
+            showError('Please enter your current password.');
+            return;
+        }
+        if (!newPwd) {
+            showError('Please enter your new password.');
+            return;
+        }
+        if (newPwd.length < 6) {
+            showError('New password must be at least 6 characters long.');
+            return;
+        }
+        if (newPwd !== confirmPwd) {
+            showError('New password and Confirm password do not match.');
+            return;
+        }
+        if (newPwd === currentPwd) {
+            showError('New password cannot be identical to your current password.');
+            return;
+        }
+
+        const u = this.currentUser || JSON.parse(sessionStorage.getItem('ccms_user') || '{}');
+        if (!u || !u.username) {
+            showError('Session expired. Please re-login to change password.');
+            return;
+        }
+
+        // Set loading state
+        if (btn) btn.disabled = true;
+        if (btnText) btnText.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
+
+        try {
+            // 1. Verify current password
+            let isVerified = false;
+
+            const userRecord = (window.DB?.data?.users || []).find(x => 
+                (x.user_id && String(x.user_id) === String(u.user_id)) || 
+                (x.username && String(x.username).toLowerCase() === String(u.username || '').toLowerCase())
+            );
+
+            if (userRecord && userRecord.password_hash) {
+                const currentHash = Utils.md5(currentPwd);
+                if (currentHash.toLowerCase() === String(userRecord.password_hash).toLowerCase()) {
+                    isVerified = true;
+                }
+            }
+
+            // Fallback: Verify via backend login check if local hash is missing or not matching
+            if (!isVerified) {
+                try {
+                    const checkRes = await window.DB.apiPost({
+                        action: 'login',
+                        data: { username: u.username, password: currentPwd }
+                    });
+                    if (checkRes && checkRes.success) {
+                        isVerified = true;
+                    }
+                } catch(e) {
+                    console.warn('[Auth] Remote verification check failed:', e);
+                }
+            }
+
+            if (!isVerified) {
+                showError('Current password is incorrect. Please check and try again.');
+                if (btn) btn.disabled = false;
+                if (btnText) btnText.innerHTML = '<i class="fas fa-key"></i> Update Password';
+                return;
+            }
+
+            // 2. Hash new password
+            const newHash = Utils.md5(newPwd);
+            const targetUserId = (userRecord && userRecord.user_id) || u.user_id;
+
+            // 3. Update database & Google Sheets
+            if (window.DB && window.DB.users && typeof window.DB.users.update === 'function') {
+                await window.DB.users.update(targetUserId, {
+                    password_hash: newHash
+                });
+            } else {
+                await window.DB.apiPost({
+                    action: 'update',
+                    sheet: 'users',
+                    id: targetUserId,
+                    data: { password_hash: newHash, updated_at: Utils.now() }
+                });
+            }
+
+            // 4. Update in-memory session
+            this.currentUser.password_hash = newHash;
+            sessionStorage.setItem('ccms_user', JSON.stringify(this.currentUser));
+
+            // 5. Activity log
+            if (window.DB && typeof window.DB.logActivity === 'function') {
+                window.DB.logActivity('Security', 'Password Change', `User ${u.username} successfully updated their password`);
+            }
+
+            // 6. Close modal and show success toast
+            if (window.App) {
+                window.App.closeModal();
+                window.App.showToast('Password changed successfully!', 'success');
+            }
+
+        } catch (err) {
+            console.error('Password change error:', err);
+            showError('Failed to change password: ' + (err.message || 'Server error'));
+            if (btn) btn.disabled = false;
+            if (btnText) btnText.innerHTML = '<i class="fas fa-key"></i> Update Password';
+        }
+    },
+
     // Check if session exists (on page reload)
     checkSession() {
         const saved = sessionStorage.getItem('ccms_user');

@@ -458,6 +458,8 @@ window.Utils = {
 
     // MD5 Hashing (used for passwords before sending to Sheets)
     md5(string) {
+        if (!string) return '';
+        var hex_chr = '0123456789abcdef'.split('');
         function md5cycle(x, k) {
             var a = x[0], b = x[1], c = x[2], d = x[3];
             a = ff(a, b, c, d, k[0], 7, -680876936); d = ff(d, a, b, c, k[1], 12, -389564586); c = ff(c, d, a, b, k[2], 17,  606105819); b = ff(b, c, d, a, k[3], 22, -1044525330);
@@ -484,6 +486,11 @@ window.Utils = {
         function hh(a, b, c, d, x, s, t) { return cmn(b ^ c ^ d, a, b, x, s, t); }
         function ii(a, b, c, d, x, s, t) { return cmn(c ^ (b | (~d)), a, b, x, s, t); }
         function add32(a, b) { return (a + b) & 0xFFFFFFFF; }
+        function rhex(n) {
+            let s = '', j = 0;
+            for (; j <= 3; j++) s += hex_chr[(n >> (j * 8 + 4)) & 0x0F] + hex_chr[(n >> (j * 8)) & 0x0F];
+            return s;
+        }
         let n = string.length, state = [1732584193, -271733879, -1732584194, 271733878], i;
         for (i = 64; i <= string.length; i += 64) { md5cycle(state, md5blk(string.substring(i - 64, i))); }
         string = string.substring(i - 64);
@@ -493,6 +500,7 @@ window.Utils = {
         if (i > 55) { md5cycle(state, tail); for (i = 0; i < 16; i++) tail[i] = 0; }
         tail[14] = n * 8; md5cycle(state, tail);
         function md5blk(s) { let m = []; for (let i = 0; i < 64; i += 4) { m[i >> 2] = s.charCodeAt(i) + (s.charCodeAt(i + 1) << 8) + (s.charCodeAt(i + 2) << 16) + (s.charCodeAt(i + 3) << 24); } return m; }
+        return rhex(state[0]) + rhex(state[1]) + rhex(state[2]) + rhex(state[3]);
     },
 
     matchSearchOrAmount(item, rawQuery) {
